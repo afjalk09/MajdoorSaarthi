@@ -1,0 +1,218 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  WORKER
+  EMPLOYER
+  ADMIN
+}
+
+enum WageType {
+  DAILY
+  HOURLY
+  PROJECT
+}
+
+enum Availability {
+  AVAILABLE
+  BUSY
+  UNAVAILABLE
+}
+
+enum JobStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  HIRED
+  COMPLETED
+}
+
+enum PaymentMethod {
+  UPI
+  OFFLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  DISPUTED
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum EmployerType {
+  INDIVIDUAL
+  CONTRACTOR
+  COMPANY
+}
+
+enum DocType {
+  AADHAAR
+  PAN
+  SKILL_CERTIFICATE
+  COMPANY_REGISTRATION
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  phone         String   @unique
+  passwordHash  String
+  role          Role
+  createdAt     DateTime @default(now())
+
+  workerProfile   WorkerProfile?
+  employerProfile EmployerProfile?
+  documents       Document[]
+  ratingsGiven    Rating[]   @relation("Rater")
+  ratingsReceived Rating[]   @relation("Ratee")
+  reviewedDocs    Document[] @relation("Reviewer")
+}
+
+model WorkerProfile {
+  id               String       @id @default(uuid())
+  userId           String       @unique
+  fullName         String
+  aadhaarNumber    String?
+  panNumber        String?
+  skills           String[]
+  experienceYears  Int          @default(0)
+  locationLat      Float?
+  locationLng      Float?
+  locationText     String?
+  availability     Availability @default(AVAILABLE)
+  expectedWageMin  Float?
+  expectedWageMax  Float?
+  wageType         WageType     @default(DAILY)
+  reliabilityScore Float        @default(0)
+  isVerified       Boolean      @default(false)
+  profilePhoto     String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+  payments     Payment[]
+}
+
+model EmployerProfile {
+  id               String       @id @default(uuid())
+  userId           String       @unique
+  employerType     EmployerType
+  displayName      String
+  contactPerson    String?
+  aadhaarNumber    String?
+  panNumber        String?
+  companyRegNumber String?
+  locationLat      Float?
+  locationLng      Float?
+  locationText     String?
+  isVerified       Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs     Job[]
+  payments Payment[]
+}
+
+model Document {
+  id         String         @id @default(uuid())
+  userId     String
+  docType    DocType
+  fileUrl    String
+  status     DocumentStatus @default(PENDING)
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt  DateTime       @default(now())
+
+  user     User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("Reviewer", fields: [reviewedBy], references: [id])
+}
+
+model Job {
+  id             String     @id @default(uuid())
+  employerId     String
+  title          String
+  description    String?
+  requiredSkills String[]
+  workersNeeded  Int        @default(1)
+  locationLat    Float?
+  locationLng    Float?
+  locationText   String?
+  wageAmount     Float
+  wageType       WageType
+  durationDays   Int?
+  status         JobStatus  @default(OPEN)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  employer     EmployerProfile  @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+  payments     Payment[]
+  ratings      Rating[]
+}
+
+model JobApplication {
+  id           String            @id @default(uuid())
+  jobId        String
+  workerId     String
+  status       ApplicationStatus @default(PENDING)
+  matchScore   Float?
+  matchReasons Json?
+  appliedAt    DateTime          @default(now())
+
+  job    Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  worker WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, workerId])
+}
+
+model Payment {
+  id                 String        @id @default(uuid())
+  jobId              String
+  workerId           String
+  employerId         String
+  amount             Float
+  platformCommission Float
+  paymentMethod      PaymentMethod
+  status             PaymentStatus @default(PENDING)
+  createdAt          DateTime      @default(now())
+
+  job      Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  worker   WorkerProfile   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  employer EmployerProfile @relation(fields: [employerId], references: [id], onDelete: Cascade)
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  jobId     String
+  raterId   String
+  rateeId   String
+  rating    Int
+  review    String?
+  createdAt DateTime @default(now())
+
+  job   Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  rater User @relation("Rater", fields: [raterId], references: [id], onDelete: Cascade)
+  ratee User @relation("Ratee", fields: [rateeId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, raterId])
+}
