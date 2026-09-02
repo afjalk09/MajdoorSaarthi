@@ -31,11 +31,11 @@ function AppRoutes() {
   const getDashboard = () => {
     if (!user) return <Navigate to="/login" />;
     switch (user.role) {
-      case 'worker':
+      case 'WORKER':
         return <WorkerDashboard />;
-      case 'employer':
+      case 'EMPLOYER':
         return <EmployerDashboard />;
-      case 'admin':
+      case 'ADMIN':
         return <AdminDashboard />;
       default:
         return <Navigate to="/" />;

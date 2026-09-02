@@ -2,7 +2,8 @@
 
 ## Project Identity
 - **Location**: E:\Labour
-- **Stack**: React 18 + Vite + Tailwind CSS + shadcn/ui | Node.js + Express + PostgreSQL + Prisma ORM
+- **Stack**: React 18 + Vite + Tailwind CSS v3 + shadcn/ui | Node.js + Express + PostgreSQL + Prisma ORM
+-use context7 mcp for latest tech stack
 - **Auth**: JWT + bcrypt, role-based (WORKER, EMPLOYER, ADMIN)
 - **Deployment**: Vercel (frontend) + Render (backend + DB)
 
@@ -11,8 +12,12 @@
 ### UI/Frontend
 - Always use **shadcn/ui** components (Button, Card, Input, Label, Badge, Alert)
 - Install components: `npx shadcn@latest add [component]`
-- Styling: Tailwind CSS with shadcn theme (green primary)
+- Styling: Tailwind CSS v3 with shadcn theme (green primary)
 - Path alias: `@/` maps to `src/`
+- CSS variables use HSL format: `hsl(var(--variable))` in tailwind.config.js
+- **Label component**: Import from `@radix-ui/react-label`, NOT `@radix-ui/react-slot`
+  - Wrong: `import * as LabelPrimitive from "@radix-ui/react-slot"` → causes "Slot failed to slot" error
+  - Correct: `import * as LabelPrimitive from "@radix-ui/react-label"`
 
 ### Backend
 - ORM: **Prisma** (not Sequelize)
@@ -31,6 +36,15 @@
 - camelCase for JS, PascalCase for Prisma model names
 - Enums: WORKER, EMPLOYER, ADMIN, DAILY, HOURLY, PROJECT, etc.
 - Relations: explicit `@relation(fields: [x], references: [id])`
+- **CRITICAL**: Roles are stored UPPERCASE in DB (`WORKER`, `EMPLOYER`, `ADMIN`)
+  - Always compare with uppercase in frontend switch/case
+  - Wrong: `case 'worker':` → will never match backend response
+  - Correct: `case 'WORKER':`
+
+### Environment Setup
+- Backend `.env` required: `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `FRONTEND_URL`
+- Frontend proxy in `vite.config.js`: `/api` → `http://localhost:5000`
+- Database: PostgreSQL on `localhost:5432` (default) or custom port
 
 ## Database Models
 
@@ -120,6 +134,9 @@ npx prisma studio
 
 # Reset database
 npx prisma migrate reset
+
+# Validate schema
+npx prisma validate
 ```
 
 ## Common Patterns
@@ -131,7 +148,7 @@ const user = await prisma.user.create({
     email,
     phone,
     passwordHash,
-    role: 'WORKER',
+    role: 'WORKER',  // Always UPPERCASE
     workerProfile: {
       create: { fullName, skills }
     }
@@ -167,4 +184,127 @@ const count = await prisma.model.count({
 const result = await prisma.payment.aggregate({
   _sum: { amount: true, platformCommission: true }
 });
+```
+
+## Known Bugs & Fixes
+
+### 1. Role Case Mismatch (CRITICAL)
+- **Symptom**: Login/Register succeeds but user redirected to `/` (blank page or landing)
+- **Cause**: Backend stores `WORKER`/`EMPLOYER` (uppercase), frontend compared against `worker`/`employer` (lowercase)
+- **Fix**: `App.jsx` switch cases must use UPPERCASE: `case 'WORKER':`, `case 'EMPLOYER':`, `case 'ADMIN':`
+- **File**: `frontend/src/App.jsx` — `getDashboard()` function
+
+### 2. Label Component Import Error
+- **Symptom**: "Slot failed to slot onto its children" — React crashes, blank white page
+- **Cause**: `label.jsx` imported from `@radix-ui/react-slot` instead of `@radix-ui/react-label`
+- **Fix**: Change import to `import * as LabelPrimitive from "@radix-ui/react-label"`
+- **File**: `frontend/src/components/ui/label.jsx`
+
+### 3. Missing Backend .env
+- **Symptom**: Prisma CLI error "Environment variable not found: DATABASE_URL"
+- **Fix**: Create `backend/.env` from `.env.example` with actual PostgreSQL credentials
+
+## Express.js Best Practices
+
+### Error Handling
+```javascript
+// Async handler wrapper (avoids try/catch in every route)
+const asyncHandler = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+
+// Error middleware (must be LAST)
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error'
+  });
+});
+```
+
+### CORS Configuration
+```javascript
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  credentials: true
+}));
+```
+
+### Body Parsing (built-in, no body-parser needed)
+```javascript
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+```
+
+## React Patterns
+
+### Context API
+```javascript
+// Create
+const AuthContext = createContext(null);
+
+// Provider with state
+const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  return (
+    <AuthContext.Provider value={{ user, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// Consumer hook (throws if used outside provider)
+const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within AuthProvider');
+  return context;
+};
+```
+
+### Performance Optimization
+- Use `useCallback` for functions passed to memoized children
+- Use `useMemo` for expensive calculations
+- Avoid unnecessary re-renders by keeping state local when possible
+
+## Tailwind CSS v3 Patterns
+
+### CSS Variables (HSL format)
+```css
+:root {
+  --primary: 142.1 76.2% 36.3%;  /* Green */
+  --primary-foreground: 355.7 100% 97.3%;
+}
+```
+
+### Usage in tailwind.config.js
+```javascript
+colors: {
+  primary: {
+    DEFAULT: "hsl(var(--primary))",
+    foreground: "hsl(var(--primary-foreground))",
+  },
+}
+```
+
+### Dark Mode
+```javascript
+// tailwind.config.js
+darkMode: ["class"],
+```
+```html
+<html class="dark">
+```
+
+## Startup Commands
+
+```bash
+# Frontend
+cd frontend && npm run dev    # Vite dev server on :5173
+
+# Backend
+cd backend && npm run dev     # nodemon on :5000
+
+# Database
+cd backend && npx prisma migrate dev
+cd backend && npx prisma studio
 ```
