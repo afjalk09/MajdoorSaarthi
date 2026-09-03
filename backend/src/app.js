@@ -29,6 +29,10 @@ app.use('/api/jobs', require('./routes/job.routes'));
 app.use('/api/payments', require('./routes/payment.routes'));
 app.use('/api/ratings', require('./routes/rating.routes'));
 app.use('/api/admin', require('./routes/admin.routes'));
+app.use('/api/notifications', require('./routes/notification.routes'));
+app.use('/api/milestones', require('./routes/milestone.routes'));
+app.use('/api/disputes', require('./routes/dispute.routes'));
+app.use('/api/reviews', require('./routes/review.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

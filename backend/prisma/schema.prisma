@@ -81,9 +81,13 @@ model User {
   workerProfile   WorkerProfile?
   employerProfile EmployerProfile?
   documents       Document[]
-  ratingsGiven    Rating[]   @relation("Rater")
-  ratingsReceived Rating[]   @relation("Ratee")
-  reviewedDocs    Document[] @relation("Reviewer")
+  ratingsGiven    Rating[]        @relation("Rater")
+  ratingsReceived Rating[]        @relation("Ratee")
+  reviewedDocs    Document[]      @relation("Reviewer")
+  notifications   Notification[]
+  disputesRaised  Dispute[]
+  reviewsGiven    Review[]        @relation("ReviewerUser")
+  reviewsReceived Review[]        @relation("RevieweeUser")
 }
 
 model WorkerProfile {
@@ -165,22 +169,43 @@ model Job {
   updatedAt      DateTime   @updatedAt
 
   employer     EmployerProfile  @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  jobRoles     JobRole[]
   applications JobApplication[]
   payments     Payment[]
   ratings      Rating[]
+  notifications Notification[]
+  milestones    Milestone[]
+  disputes      Dispute[]
+  reviews       Review[]
+}
+
+model JobRole {
+  id          String  @id @default(uuid())
+  jobId       String
+  roleName    String
+  skills      String[]
+  count       Int
+  filledCount Int     @default(0)
+
+  job         Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  applications JobApplication[]
+
+  @@unique([jobId, roleName])
 }
 
 model JobApplication {
   id           String            @id @default(uuid())
   jobId        String
   workerId     String
+  jobRoleId    String?
   status       ApplicationStatus @default(PENDING)
   matchScore   Float?
   matchReasons Json?
   appliedAt    DateTime          @default(now())
 
-  job    Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  worker WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  job     Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  worker  WorkerProfile   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  jobRole JobRole?        @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
 
   @@unique([jobId, workerId])
 }
@@ -215,4 +240,63 @@ model Rating {
   ratee User @relation("Ratee", fields: [rateeId], references: [id], onDelete: Cascade)
 
   @@unique([jobId, raterId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  jobId     String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
+}
+
+model Milestone {
+  id          String    @id @default(uuid())
+  jobId       String
+  title       String
+  description String?
+  status      String    @default("PENDING")
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+}
+
+model Dispute {
+  id          String    @id @default(uuid())
+  jobId       String
+  raisedById  String
+  reason      String
+  description String
+  status      String    @default("OPEN")
+  resolution  String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  job      Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  raisedBy User @relation(fields: [raisedById], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  jobId      String
+  reviewerId String
+  revieweeId String
+  rating     Int
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  job      Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  reviewer User @relation("ReviewerUser", fields: [reviewerId], references: [id], onDelete: Cascade)
+  reviewee User @relation("RevieweeUser", fields: [revieweeId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, reviewerId])
 }

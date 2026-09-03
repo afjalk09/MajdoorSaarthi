@@ -1,5 +1,18 @@
 const prisma = require('../lib/prisma');
 
+// Haversine formula to calculate distance between two coordinates in km
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 exports.getProfile = async (req, res, next) => {
   try {
     const profile = await prisma.workerProfile.findUnique({
@@ -96,16 +109,47 @@ exports.getAvailableJobs = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
+    const MAX_DISTANCE_KM = 50;
+
+    // Build where clause
+    const where = { status: 'OPEN' };
+
+    // Only filter by skills if worker has skills
+    if (profile.skills && profile.skills.length > 0) {
+      where.requiredSkills = { hasSome: profile.skills };
+    }
+
     const jobs = await prisma.job.findMany({
-      where: {
-        status: 'OPEN',
-        requiredSkills: { hasSome: profile.skills || [] }
-      },
+      where,
       include: { employer: true },
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json({ success: true, data: jobs });
+    // Calculate distance and filter by proximity
+    const workerLat = profile.locationLat;
+    const workerLng = profile.locationLng;
+
+    const jobsWithDistance = jobs
+      .map(job => {
+        let distance = null;
+        if (workerLat && workerLng && job.locationLat && job.locationLng) {
+          distance = haversineDistance(workerLat, workerLng, job.locationLat, job.locationLng);
+        }
+        return { ...job, distance };
+      })
+      .filter(job => {
+        // Show jobs without location data (can't filter by distance)
+        if (job.distance === null) return true;
+        return job.distance <= MAX_DISTANCE_KM;
+      })
+      .sort((a, b) => {
+        // Jobs without distance go to the end
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return a.distance - b.distance;
+      });
+
+    res.json({ success: true, data: jobsWithDistance });
   } catch (error) {
     next(error);
   }

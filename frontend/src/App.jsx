@@ -4,8 +4,14 @@ import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import WorkerDashboard from './pages/WorkerDashboard';
+import WorkerProfile from './pages/WorkerProfile';
 import EmployerDashboard from './pages/EmployerDashboard';
+import EmployerProfile from './pages/EmployerProfile';
+import EditJob from './pages/EditJob';
 import AdminDashboard from './pages/AdminDashboard';
+import Notifications from './pages/Notifications';
+import JobTracking from './pages/JobTracking';
+import Disputes from './pages/Disputes';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
@@ -52,6 +58,54 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {getDashboard()}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/worker/profile"
+        element={
+          <ProtectedRoute allowedRoles={['WORKER']}>
+            <WorkerProfile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/employer/profile"
+        element={
+          <ProtectedRoute allowedRoles={['EMPLOYER']}>
+            <EmployerProfile />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/employer/jobs/:id/edit"
+        element={
+          <ProtectedRoute allowedRoles={['EMPLOYER']}>
+            <EditJob />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <ProtectedRoute>
+            <Notifications />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/jobs/:id/track"
+        element={
+          <ProtectedRoute>
+            <JobTracking />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/disputes"
+        element={
+          <ProtectedRoute>
+            <Disputes />
           </ProtectedRoute>
         }
       />

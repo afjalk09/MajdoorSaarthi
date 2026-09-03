@@ -6,5 +6,6 @@ const { authenticate, authorize } = require('../middleware/auth.middleware');
 router.get('/profile', authenticate, authorize('employer'), employerController.getProfile);
 router.put('/profile', authenticate, authorize('employer'), employerController.updateProfile);
 router.post('/documents', authenticate, authorize('employer'), employerController.uploadDocument);
+router.get('/workers', authenticate, authorize('employer'), employerController.getWorkersByLocation);
 
 module.exports = router;

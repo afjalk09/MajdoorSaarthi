@@ -1,5 +1,18 @@
 const prisma = require('../lib/prisma');
 
+// Haversine formula to calculate distance between two coordinates in km
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 exports.getProfile = async (req, res, next) => {
   try {
     const profile = await prisma.employerProfile.findUnique({
@@ -81,6 +94,79 @@ exports.uploadDocument = async (req, res, next) => {
     });
 
     res.status(201).json({ success: true, data: document });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getWorkersByLocation = async (req, res, next) => {
+  try {
+    const { job_id } = req.query;
+
+    let locationText = null;
+    let locationLat = null;
+    let locationLng = null;
+    let jobSkills = [];
+
+    if (job_id) {
+      const job = await prisma.job.findUnique({ where: { id: job_id } });
+      if (!job) {
+        return res.status(404).json({ success: false, message: 'Job not found' });
+      }
+      locationText = job.locationText;
+      locationLat = job.locationLat;
+      locationLng = job.locationLng;
+      jobSkills = job.requiredSkills || [];
+    }
+
+    const where = { availability: 'AVAILABLE' };
+
+    // Filter by location text if available
+    if (locationText) {
+      where.locationText = locationText;
+    }
+
+    const workers = await prisma.workerProfile.findMany({
+      where,
+      include: { user: { select: { email: true, phone: true } } },
+      orderBy: { reliabilityScore: 'desc' }
+    });
+
+    // Calculate distance and filter by proximity (50km)
+    const workersWithDistance = workers
+      .map(worker => {
+        let distance = null;
+        if (locationLat && locationLng && worker.locationLat && worker.locationLng) {
+          distance = haversineDistance(locationLat, locationLng, worker.locationLat, worker.locationLng);
+        }
+
+        // Calculate skill match percentage
+        const workerSkills = worker.skills || [];
+        const matchedSkills = workerSkills.filter(s => jobSkills.includes(s));
+        const skillMatch = jobSkills.length > 0
+          ? Math.round((matchedSkills.length / jobSkills.length) * 100)
+          : 0;
+
+        return {
+          ...worker,
+          distance,
+          skillMatch,
+          matchedSkills
+        };
+      })
+      .filter(worker => {
+        if (worker.distance === null) return true;
+        return worker.distance <= 50;
+      })
+      .sort((a, b) => {
+        // Sort by skill match first, then by distance
+        if (b.skillMatch !== a.skillMatch) return b.skillMatch - a.skillMatch;
+        if (a.distance === null) return 1;
+        if (b.distance === null) return -1;
+        return a.distance - b.distance;
+      });
+
+    res.json({ success: true, data: workersWithDistance });
   } catch (error) {
     next(error);
   }

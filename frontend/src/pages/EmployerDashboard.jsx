@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Button } from '@/components/ui/button';
@@ -7,36 +8,40 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import NotificationBell from '@/components/NotificationBell';
+import ReviewModal from '@/components/ReviewModal';
+import DisputeForm from '@/components/DisputeForm';
 
 const EmployerDashboard = () => {
   const { user, logout } = useAuth();
-  const [profile, setProfile] = useState(null);
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('create');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Profile form
-  const [employerType, setEmployerType] = useState('individual');
-  const [displayName, setDisplayName] = useState('');
-  const [contactPerson, setContactPerson] = useState('');
-  const [location, setLocation] = useState('');
-
   // Job form
   const [jobTitle, setJobTitle] = useState('');
   const [jobDesc, setJobDesc] = useState('');
-  const [jobSkills, setJobSkills] = useState('');
-  const [workersNeeded, setWorkersNeeded] = useState('1');
   const [jobLocation, setJobLocation] = useState('');
   const [wageAmount, setWageAmount] = useState('');
-  const [wageType, setWageType] = useState('daily');
+  const [wageType, setWageType] = useState('DAILY');
   const [duration, setDuration] = useState('');
+  const [roleRequirements, setRoleRequirements] = useState([
+    { roleName: '', skills: '', count: 1 }
+  ]);
 
   // Match modal
   const [selectedJob, setSelectedJob] = useState(null);
   const [matches, setMatches] = useState([]);
   const [showMatches, setShowMatches] = useState(false);
+
+  // Browse workers modal
+  const [browseJob, setBrowseJob] = useState(null);
+  const [workers, setWorkers] = useState([]);
+  const [showWorkers, setShowWorkers] = useState(false);
+  const [loadingWorkers, setLoadingWorkers] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -44,19 +49,7 @@ const EmployerDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [profileRes, jobsRes] = await Promise.all([
-        api.get('/employer/profile').catch(() => ({ data: { data: null } })),
-        api.get('/jobs').catch(() => ({ data: { data: [] } }))
-      ]);
-
-      if (profileRes.data.data) {
-        setProfile(profileRes.data.data);
-        setEmployerType(profileRes.data.data.employer_type || 'individual');
-        setDisplayName(profileRes.data.data.display_name || '');
-        setContactPerson(profileRes.data.data.contact_person || '');
-        setLocation(profileRes.data.data.location_text || '');
-      }
-
+      const jobsRes = await api.get('/jobs').catch(() => ({ data: { data: [] } }));
       setJobs(jobsRes.data.data || []);
     } catch (err) {
       console.error('Error:', err);
@@ -65,23 +58,19 @@ const EmployerDashboard = () => {
     }
   };
 
-  const handleProfileSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
+  const addRole = () => {
+    setRoleRequirements([...roleRequirements, { roleName: '', skills: '', count: 1 }]);
+  };
 
-    try {
-      const res = await api.put('/employer/profile', {
-        employer_type: employerType,
-        display_name: displayName,
-        contact_person: contactPerson,
-        location_text: location
-      });
-      setProfile(res.data.data);
-      setSuccess('Profile updated successfully');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update profile');
-    }
+  const removeRole = (index) => {
+    if (roleRequirements.length <= 1) return;
+    setRoleRequirements(roleRequirements.filter((_, i) => i !== index));
+  };
+
+  const updateRole = (index, field, value) => {
+    const updated = [...roleRequirements];
+    updated[index] = { ...updated[index], [field]: value };
+    setRoleRequirements(updated);
   };
 
   const handleCreateJob = async (e) => {
@@ -89,12 +78,24 @@ const EmployerDashboard = () => {
     setError('');
     setSuccess('');
 
+    const roleReqs = roleRequirements
+      .filter(r => r.roleName.trim())
+      .map(r => ({
+        roleName: r.roleName.trim(),
+        skills: r.skills.split(',').map(s => s.trim()).filter(s => s),
+        count: parseInt(r.count) || 1
+      }));
+
+    if (roleReqs.length === 0) {
+      setError('Add at least one role with a name');
+      return;
+    }
+
     try {
       await api.post('/jobs', {
         title: jobTitle,
         description: jobDesc,
-        required_skills: jobSkills.split(',').map(s => s.trim()).filter(s => s),
-        workers_needed: parseInt(workersNeeded) || 1,
+        role_requirements: roleReqs,
         location_text: jobLocation,
         wage_amount: parseFloat(wageAmount),
         wage_type: wageType,
@@ -103,11 +104,10 @@ const EmployerDashboard = () => {
       setSuccess('Job created successfully');
       setJobTitle('');
       setJobDesc('');
-      setJobSkills('');
-      setWorkersNeeded('1');
       setJobLocation('');
       setWageAmount('');
       setDuration('');
+      setRoleRequirements([{ roleName: '', skills: '', count: 1 }]);
       fetchData();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to create job');
@@ -125,9 +125,23 @@ const EmployerDashboard = () => {
     }
   };
 
-  const handleHire = async (jobId, workerId) => {
+  const handleBrowseWorkers = async (job) => {
+    setBrowseJob(job);
+    setLoadingWorkers(true);
     try {
-      await api.post(`/jobs/${jobId}/hire/${workerId}`);
+      const res = await api.get(`/employer/workers?job_id=${job.id}`);
+      setWorkers(res.data.data || []);
+      setShowWorkers(true);
+    } catch (err) {
+      setError('Failed to load workers');
+    } finally {
+      setLoadingWorkers(false);
+    }
+  };
+
+  const handleHire = async (jobId, workerId, jobRoleId) => {
+    try {
+      await api.post(`/jobs/${jobId}/hire/${workerId}`, { jobRoleId });
       setSuccess('Worker hired successfully!');
       setShowMatches(false);
       fetchData();
@@ -156,6 +170,8 @@ const EmployerDashboard = () => {
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-green-600">Employer Dashboard</h1>
           <div className="flex items-center gap-4">
+            <NotificationBell />
+            <Button variant="outline" onClick={() => navigate('/disputes')}>My Disputes</Button>
             <span className="text-sm text-muted-foreground">{user?.email}</span>
             <Button variant="outline" onClick={logout}>Logout</Button>
           </div>
@@ -176,76 +192,29 @@ const EmployerDashboard = () => {
         )}
 
         <div className="flex gap-2 mb-6">
-          <Button variant={activeTab === 'profile' ? 'default' : 'outline'} onClick={() => setActiveTab('profile')}>Profile</Button>
+          <Button variant="outline" onClick={() => navigate('/employer/profile')}>My Profile</Button>
           <Button variant={activeTab === 'create' ? 'default' : 'outline'} onClick={() => setActiveTab('create')}>Create Job</Button>
           <Button variant={activeTab === 'jobs' ? 'default' : 'outline'} onClick={() => setActiveTab('jobs')}>My Jobs</Button>
         </div>
-
-        {/* Profile Tab */}
-        {activeTab === 'profile' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Settings</CardTitle>
-              <CardDescription>Manage your employer profile</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleProfileSubmit} className="space-y-4">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Account Type</Label>
-                    <select
-                      value={employerType}
-                      onChange={(e) => setEmployerType(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
-                    >
-                      <option value="individual">Individual</option>
-                      <option value="contractor">Contractor</option>
-                      <option value="company">Company</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Display Name</Label>
-                    <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name or company name" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Contact Person (for companies)</Label>
-                    <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Contact person name" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Location</Label>
-                    <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Mumbai, Maharashtra" />
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit">Save Profile</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Create Job Tab */}
         {activeTab === 'create' && (
           <Card>
             <CardHeader>
               <CardTitle>Post a New Job</CardTitle>
-              <CardDescription>Describe the work you need done</CardDescription>
+              <CardDescription>Describe the work you need done and required roles</CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleCreateJob} className="space-y-4">
+              <form onSubmit={handleCreateJob} className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Job Title</Label>
-                    <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Plumbing work" required />
+                    <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} placeholder="Building renovation work" required />
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Workers Needed</Label>
-                    <Input type="number" value={workersNeeded} onChange={(e) => setWorkersNeeded(e.target.value)} min="1" />
+                    <Label>Location</Label>
+                    <Input value={jobLocation} onChange={(e) => setJobLocation(e.target.value)} placeholder="Andheri, Mumbai" />
                   </div>
 
                   <div className="space-y-2 md:col-span-2">
@@ -256,16 +225,6 @@ const EmployerDashboard = () => {
                       placeholder="Describe the job requirements..."
                       className="flex min-h-[80px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Required Skills (comma separated)</Label>
-                    <Input value={jobSkills} onChange={(e) => setJobSkills(e.target.value)} placeholder="plumbing, pipe fitting" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Location</Label>
-                    <Input value={jobLocation} onChange={(e) => setJobLocation(e.target.value)} placeholder="Andheri, Mumbai" />
                   </div>
 
                   <div className="space-y-2">
@@ -280,9 +239,9 @@ const EmployerDashboard = () => {
                       onChange={(e) => setWageType(e.target.value)}
                       className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
                     >
-                      <option value="daily">Per Day</option>
-                      <option value="hourly">Per Hour</option>
-                      <option value="project">Per Project</option>
+                      <option value="DAILY">Per Day</option>
+                      <option value="HOURLY">Per Hour</option>
+                      <option value="PROJECT">Per Project</option>
                     </select>
                   </div>
 
@@ -290,6 +249,58 @@ const EmployerDashboard = () => {
                     <Label>Duration (days)</Label>
                     <Input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5" />
                   </div>
+                </div>
+
+                {/* Role Requirements */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <Label className="text-base font-semibold">Worker Roles Required</Label>
+                    <Button type="button" variant="outline" size="sm" onClick={addRole}>
+                      + Add Role
+                    </Button>
+                  </div>
+
+                  {roleRequirements.map((role, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
+                      <div className="col-span-4 space-y-1">
+                        <Label className="text-xs">Role Name</Label>
+                        <Input
+                          value={role.roleName}
+                          onChange={(e) => updateRole(index, 'roleName', e.target.value)}
+                          placeholder="e.g., Carpenter"
+                        />
+                      </div>
+                      <div className="col-span-5 space-y-1">
+                        <Label className="text-xs">Skills (comma separated)</Label>
+                        <Input
+                          value={role.skills}
+                          onChange={(e) => updateRole(index, 'skills', e.target.value)}
+                          placeholder="carpentry, woodworking"
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">Count</Label>
+                        <Input
+                          type="number"
+                          value={role.count}
+                          onChange={(e) => updateRole(index, 'count', e.target.value)}
+                          min="1"
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeRole(index)}
+                          disabled={roleRequirements.length <= 1}
+                          className="text-red-500 hover:text-red-700"
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="flex justify-end">
@@ -317,13 +328,13 @@ const EmployerDashboard = () => {
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle>{job.title}</CardTitle>
-                        <CardDescription>{job.location_text}</CardDescription>
+                        <CardDescription>{job.locationText}</CardDescription>
                       </div>
                       <div className="flex gap-2">
-                        <Badge>₹{job.wage_amount}/{job.wage_type}</Badge>
+                        <Badge>₹{job.wageAmount}/{job.wageType}</Badge>
                         <Badge variant={
-                          job.status === 'open' ? 'default' :
-                          job.status === 'completed' ? 'secondary' : 'outline'
+                          job.status === 'OPEN' ? 'default' :
+                          job.status === 'COMPLETED' ? 'secondary' : 'outline'
                         }>
                           {job.status}
                         </Badge>
@@ -332,30 +343,56 @@ const EmployerDashboard = () => {
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground mb-4">{job.description}</p>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {job.required_skills?.map((skill, i) => (
-                        <Badge key={i} variant="secondary">{skill}</Badge>
-                      ))}
-                    </div>
+
+                    {/* Role breakdown */}
+                    {job.jobRoles && job.jobRoles.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {job.jobRoles.map((role, i) => (
+                          <Badge key={i} variant="secondary">
+                            {role.roleName}: {role.filledCount}/{role.count}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">
-                        Workers: {job.workers_needed} | Duration: {job.duration_days} days
+                        Total Workers: {job.workersNeeded} | Duration: {job.durationDays} days
                       </span>
                       <div className="flex gap-2">
-                        {job.status === 'open' && (
+                        {job.status === 'OPEN' && (
                           <>
+                            <Button variant="outline" onClick={() => navigate(`/employer/jobs/${job.id}/edit`)}>
+                              Edit
+                            </Button>
                             <Button variant="outline" onClick={() => handleGetMatches(job)}>
-                              Find Workers
+                              AI Match
+                            </Button>
+                            <Button variant="outline" onClick={() => handleBrowseWorkers(job)}>
+                              Browse Workers
                             </Button>
                             <Button variant="destructive" onClick={() => handleStatusUpdate(job.id, 'cancelled')}>
                               Cancel
                             </Button>
                           </>
                         )}
-                        {job.status === 'in_progress' && (
-                          <Button onClick={() => handleStatusUpdate(job.id, 'completed')}>
-                            Mark Completed
-                          </Button>
+                        {job.status === 'IN_PROGRESS' && (
+                          <>
+                            <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/track`)}>
+                              Track Job
+                            </Button>
+                            <Button onClick={() => handleStatusUpdate(job.id, 'completed')}>
+                              Mark Completed
+                            </Button>
+                            <DisputeForm jobId={job.id} onDisputeRaised={fetchData} />
+                          </>
+                        )}
+                        {job.status === 'COMPLETED' && (
+                          <>
+                            <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/track`)}>
+                              View Details
+                            </Button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -400,12 +437,85 @@ const EmployerDashboard = () => {
                             <Badge key={i} variant="outline" className="text-xs">{skill}</Badge>
                           ))}
                         </div>
+                        {match.suggestedRole && (
+                          <p className="text-xs text-blue-600 mb-2">
+                            Suggested role: {match.suggestedRole.roleName} ({match.suggestedRole.filledCount}/{match.suggestedRole.count} filled)
+                          </p>
+                        )}
                         <ul className="text-xs text-muted-foreground mb-3">
                           {match.match_reasons?.map((reason, i) => (
                             <li key={i}>• {reason}</li>
                           ))}
                         </ul>
-                        <Button size="sm" onClick={() => handleHire(selectedJob.id, match.worker_id)}>
+                        <Button
+                          size="sm"
+                          onClick={() => handleHire(selectedJob.id, match.worker_id, match.suggestedRole?.id)}
+                          disabled={!match.suggestedRole}
+                        >
+                          {match.suggestedRole ? 'Hire Worker' : 'No Available Role'}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Browse Workers Modal */}
+        {showWorkers && browseJob && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <Card className="w-full max-w-3xl max-h-[80vh] overflow-y-auto">
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle>Workers at {browseJob.locationText}</CardTitle>
+                    <CardDescription>For: {browseJob.title}</CardDescription>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setShowWorkers(false)}>×</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingWorkers ? (
+                  <p className="text-center text-muted-foreground py-4">Loading workers...</p>
+                ) : workers.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4">
+                    No available workers found at this location.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {workers.map((worker) => (
+                      <div key={worker.id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h4 className="font-semibold">{worker.fullName}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              {worker.locationText}
+                              {worker.distance != null && ` • ${worker.distance.toFixed(1)} km away`}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            {worker.skillMatch > 0 && (
+                              <Badge className="bg-green-600">{worker.skillMatch}% skill match</Badge>
+                            )}
+                            <Badge variant="outline">Score: {worker.reliabilityScore}/5</Badge>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {worker.skills?.map((skill, i) => (
+                            <Badge key={i} variant={worker.matchedSkills?.includes(skill) ? 'default' : 'outline'} className="text-xs">
+                              {skill}
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground mb-3">
+                          Experience: {worker.experienceYears} years | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
+                        </p>
+                        <Button
+                          size="sm"
+                          onClick={() => handleHire(browseJob.id, worker.id)}
+                        >
                           Hire Worker
                         </Button>
                       </div>

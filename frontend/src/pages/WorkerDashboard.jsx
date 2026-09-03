@@ -1,31 +1,24 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import NotificationBell from '@/components/NotificationBell';
+import ReviewModal from '@/components/ReviewModal';
+import DisputeForm from '@/components/DisputeForm';
 
 const WorkerDashboard = () => {
   const { user, logout } = useAuth();
-  const [profile, setProfile] = useState(null);
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('jobs');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  // Profile form state
-  const [fullName, setFullName] = useState('');
-  const [skills, setSkills] = useState('');
-  const [experience, setExperience] = useState('');
-  const [location, setLocation] = useState('');
-  const [wageMin, setWageMin] = useState('');
-  const [wageMax, setWageMax] = useState('');
-  const [wageType, setWageType] = useState('daily');
 
   useEffect(() => {
     fetchData();
@@ -33,22 +26,10 @@ const WorkerDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [profileRes, jobsRes, appsRes] = await Promise.all([
-        api.get('/worker/profile').catch(() => ({ data: { data: null } })),
+      const [jobsRes, appsRes] = await Promise.all([
         api.get('/worker/jobs').catch(() => ({ data: { data: [] } })),
         api.get('/worker/applications').catch(() => ({ data: { data: [] } }))
       ]);
-
-      if (profileRes.data.data) {
-        setProfile(profileRes.data.data);
-        setFullName(profileRes.data.data.full_name || '');
-        setSkills(profileRes.data.data.skills?.join(', ') || '');
-        setExperience(profileRes.data.data.experience_years || '');
-        setLocation(profileRes.data.data.location_text || '');
-        setWageMin(profileRes.data.data.expected_wage_min || '');
-        setWageMax(profileRes.data.data.expected_wage_max || '');
-        setWageType(profileRes.data.data.wage_type || 'daily');
-      }
 
       setJobs(jobsRes.data.data || []);
       setApplications(appsRes.data.data || []);
@@ -56,31 +37,6 @@ const WorkerDashboard = () => {
       console.error('Error fetching data:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleProfileSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-
-    try {
-      const profileData = {
-        full_name: fullName,
-        skills: skills.split(',').map(s => s.trim()).filter(s => s),
-        experience_years: parseInt(experience) || 0,
-        location_text: location,
-        expected_wage_min: parseFloat(wageMin) || 0,
-        expected_wage_max: parseFloat(wageMax) || 0,
-        wage_type: wageType,
-        availability: 'available'
-      };
-
-      const res = await api.put('/worker/profile', profileData);
-      setProfile(res.data.data);
-      setSuccess('Profile updated successfully');
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update profile');
     }
   };
 
@@ -105,6 +61,8 @@ const WorkerDashboard = () => {
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold text-green-600">Worker Dashboard</h1>
           <div className="flex items-center gap-4">
+            <NotificationBell />
+            <Button variant="outline" onClick={() => navigate('/disputes')}>My Disputes</Button>
             <span className="text-sm text-muted-foreground">{user?.email}</span>
             <Button variant="outline" onClick={logout}>Logout</Button>
           </div>
@@ -127,8 +85,8 @@ const WorkerDashboard = () => {
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
           <Button
-            variant={activeTab === 'profile' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('profile')}
+            variant="outline"
+            onClick={() => navigate('/worker/profile')}
           >
             My Profile
           </Button>
@@ -145,102 +103,6 @@ const WorkerDashboard = () => {
             My Applications
           </Button>
         </div>
-
-        {/* Profile Tab */}
-        {activeTab === 'profile' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Profile Settings</CardTitle>
-              <CardDescription>Update your profile to get better job matches</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleProfileSubmit} className="space-y-4">
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Full Name</Label>
-                    <Input
-                      id="fullName"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="John Doe"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="skills">Skills (comma separated)</Label>
-                    <Input
-                      id="skills"
-                      value={skills}
-                      onChange={(e) => setSkills(e.target.value)}
-                      placeholder="plumbing, electrical, painting"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="experience">Years of Experience</Label>
-                    <Input
-                      id="experience"
-                      type="number"
-                      value={experience}
-                      onChange={(e) => setExperience(e.target.value)}
-                      placeholder="5"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="location">Location</Label>
-                    <Input
-                      id="location"
-                      value={location}
-                      onChange={(e) => setLocation(e.target.value)}
-                      placeholder="Mumbai, Maharashtra"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wageMin">Min Expected Wage (₹)</Label>
-                    <Input
-                      id="wageMin"
-                      type="number"
-                      value={wageMin}
-                      onChange={(e) => setWageMin(e.target.value)}
-                      placeholder="500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wageMax">Max Expected Wage (₹)</Label>
-                    <Input
-                      id="wageMax"
-                      type="number"
-                      value={wageMax}
-                      onChange={(e) => setWageMax(e.target.value)}
-                      placeholder="800"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wageType">Wage Type</Label>
-                    <select
-                      id="wageType"
-                      value={wageType}
-                      onChange={(e) => setWageType(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
-                    >
-                      <option value="daily">Per Day</option>
-                      <option value="hourly">Per Hour</option>
-                      <option value="project">Per Project</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit">Save Profile</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Jobs Tab */}
         {activeTab === 'jobs' && (
@@ -259,21 +121,37 @@ const WorkerDashboard = () => {
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle>{job.title}</CardTitle>
-                        <CardDescription>{job.location_text}</CardDescription>
+                        <CardDescription>
+                          {job.locationText}
+                          {job.distance != null && ` • ${job.distance.toFixed(1)} km away`}
+                        </CardDescription>
                       </div>
-                      <Badge>₹{job.wage_amount}/{job.wage_type}</Badge>
+                      <Badge>₹{job.wageAmount}/{job.wageType}</Badge>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground mb-4">{job.description}</p>
+
+                    {/* Role requirements */}
+                    {job.jobRoles && job.jobRoles.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {job.jobRoles.map((role, i) => (
+                          <Badge key={i} variant="secondary">
+                            {role.roleName}: {role.count - role.filledCount} needed
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap gap-2 mb-4">
-                      {job.required_skills?.map((skill, i) => (
-                        <Badge key={i} variant="secondary">{skill}</Badge>
+                      {job.requiredSkills?.map((skill, i) => (
+                        <Badge key={i} variant="outline">{skill}</Badge>
                       ))}
                     </div>
+
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">
-                        Workers needed: {job.workers_needed} | Duration: {job.duration_days} days
+                        Workers: {job.workersNeeded} | Duration: {job.durationDays} days
                       </span>
                       <Button onClick={() => handleApply(job.id)}>Apply</Button>
                     </div>
@@ -301,11 +179,11 @@ const WorkerDashboard = () => {
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle>{app.job?.title}</CardTitle>
-                        <CardDescription>{app.job?.location_text}</CardDescription>
+                        <CardDescription>{app.job?.locationText}</CardDescription>
                       </div>
                       <Badge variant={
-                        app.status === 'hired' ? 'default' :
-                        app.status === 'rejected' ? 'destructive' : 'secondary'
+                        app.status === 'HIRED' ? 'default' :
+                        app.status === 'REJECTED' ? 'destructive' : 'secondary'
                       }>
                         {app.status}
                       </Badge>
@@ -314,10 +192,27 @@ const WorkerDashboard = () => {
                   <CardContent>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-muted-foreground">
-                        Applied: {new Date(app.applied_at).toLocaleDateString()}
+                        Applied: {new Date(app.appliedAt).toLocaleDateString()}
                       </span>
-                      {app.match_score && (
-                        <span>Match Score: {app.match_score}%</span>
+                      {app.matchScore && (
+                        <span>Match Score: {app.matchScore}%</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                      {(app.status === 'HIRED' || app.status === 'PENDING') && app.job?.status === 'IN_PROGRESS' && (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/jobs/${app.jobId}/track`)}>
+                            Track Job
+                          </Button>
+                          <DisputeForm jobId={app.jobId} onDisputeRaised={fetchData} />
+                        </>
+                      )}
+                      {app.job?.status === 'COMPLETED' && (
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/jobs/${app.jobId}/track`)}>
+                            View Details
+                          </Button>
+                        </>
                       )}
                     </div>
                   </CardContent>
