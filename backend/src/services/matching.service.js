@@ -1,15 +1,6 @@
 const prisma = require('../lib/prisma');
 
-const calculateDistance = (lat1, lng1, lat2, lng2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-};
+const normalizeLocation = (location) => (location || '').trim().toLowerCase();
 
 const generateReasons = (worker, job, scores) => {
   const reasons = [];
@@ -20,7 +11,7 @@ const generateReasons = (worker, job, scores) => {
 
   const avgExpected = ((worker.expectedWageMin || 0) + (worker.expectedWageMax || 0)) / 2;
   reasons.push(`Wage ₹${job.wageAmount} vs expected ₹${Math.round(avgExpected)}`);
-  reasons.push(`${scores.distance.toFixed(1)} km away`);
+  reasons.push(`Location match: ${job.locationText || 'N/A'}`);
 
   return reasons;
 };
@@ -42,15 +33,9 @@ exports.findMatches = async (job) => {
     );
     if (!hasMatchingSkills) continue;
 
-    // Hard filter: distance <= 50km
-    let distance = 50;
-    if (worker.locationLat && worker.locationLng && job.locationLat && job.locationLng) {
-      distance = calculateDistance(
-        worker.locationLat, worker.locationLng,
-        job.locationLat, job.locationLng
-      );
-    }
-    if (distance > 50) continue;
+    // Hard filter: location is an exact text match
+    const jobLocation = normalizeLocation(job.locationText);
+    if (!jobLocation || normalizeLocation(worker.locationText) !== jobLocation) continue;
 
     // Calculate scores
     const matchedSkills = (job.requiredSkills || []).filter(s => (worker.skills || []).includes(s));
@@ -64,7 +49,7 @@ exports.findMatches = async (job) => {
     const wageDiff = Math.abs(job.wageAmount - avgExpected);
     const wageScore = avgExpected > 0 ? Math.max(0, 100 - (wageDiff / avgExpected) * 100) : 50;
 
-    const proximityScore = Math.max(0, 100 - (distance / 50) * 100);
+    const proximityScore = 100;
 
     const totalScore = (
       skillScore * 0.30 +
@@ -81,10 +66,9 @@ exports.findMatches = async (job) => {
       experience_years: worker.experienceYears,
       reliability_score: worker.reliabilityScore,
       location_text: worker.locationText,
-      distance: Math.round(distance * 10) / 10,
       match_score: Math.round(totalScore * 100) / 100,
       match_reasons: generateReasons(worker, job, {
-        skillScore, experienceScore, reliabilityScore, wageScore, proximityScore, distance
+        skillScore, experienceScore, reliabilityScore, wageScore, proximityScore
       })
     });
   }

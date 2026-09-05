@@ -51,6 +51,19 @@ exports.submitReview = async (req, res, next) => {
       job_id
     );
 
+    // Recompute the reliability score if the reviewee is a worker
+    const reviewee = await prisma.user.findUnique({ where: { id: reviewee_id } });
+    if (reviewee && reviewee.role === 'WORKER') {
+      const reviews = await prisma.review.findMany({ where: { revieweeId: reviewee_id } });
+      const avgRating = reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length;
+      const reliabilityScore = (avgRating / 5) * 100;
+
+      await prisma.workerProfile.update({
+        where: { userId: reviewee_id },
+        data: { reliabilityScore: Math.round(reliabilityScore * 100) / 100 }
+      });
+    }
+
     res.status(201).json({ success: true, data: review });
   } catch (error) {
     next(error);

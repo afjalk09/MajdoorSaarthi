@@ -2,6 +2,82 @@ const prisma = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { createNotification } = require('./notification.controller');
 
+// Release a worker from a job (worker cancels / employer removes).
+// Keeps application status, worker availability, role fill counts and job status consistent.
+const releaseWorkerFromJob = async ({ jobId, workerId, appStatus }) => {
+  const app = await prisma.jobApplication.findUnique({
+    where: { jobId_workerId: { jobId, workerId } }
+  });
+
+  if (!app || app.status !== 'HIRED') return { released: false };
+
+  await prisma.jobApplication.update({
+    where: { id: app.id },
+    data: { status: appStatus }
+  });
+
+  await prisma.workerProfile.update({
+    where: { id: workerId },
+    data: { availability: 'AVAILABLE' }
+  });
+
+  // Recompute role fill counts and job status from actual hired applications
+  await recomputeJobFill(jobId);
+
+  return { released: true };
+};
+
+exports.releaseWorkerFromJob = releaseWorkerFromJob;
+
+// Recompute per-role filledCount and job status from actual hired applications.
+// A job becomes IN_PROGRESS once its total hired headcount equals workersNeeded,
+// and reopens if staff drop below that while it was in progress.
+const recomputeJobFill = async (jobId) => {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      status: true,
+      workersNeeded: true,
+      jobRoles: { select: { id: true } }
+    }
+  });
+
+  if (!job) return { filled: false };
+
+  if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+    return { filled: job.status === 'COMPLETED' };
+  }
+
+  const apps = await prisma.jobApplication.findMany({
+    where: { jobId, status: { in: ['HIRED', 'COMPLETED'] } },
+    select: { jobRoleId: true }
+  });
+
+  const roleCounts = {};
+  apps.forEach(a => {
+    if (a.jobRoleId) roleCounts[a.jobRoleId] = (roleCounts[a.jobRoleId] || 0) + 1;
+  });
+
+  const hiredCount = apps.length;
+  const nextStatus = hiredCount >= job.workersNeeded ? 'IN_PROGRESS' : 'OPEN';
+
+  await Promise.all(job.jobRoles.map(role =>
+    prisma.jobRole.update({
+      where: { id: role.id },
+      data: { filledCount: roleCounts[role.id] || 0 }
+    })
+  ));
+
+  const updatedJob = await prisma.job.update({
+    where: { id: jobId },
+    data: { status: nextStatus }
+  });
+
+  return { filled: nextStatus === 'IN_PROGRESS', job: updatedJob };
+};
+
+exports.recomputeJobFill = recomputeJobFill;
+
 exports.createJob = async (req, res, next) => {
   try {
     const {
@@ -51,6 +127,32 @@ exports.createJob = async (req, res, next) => {
       include: { jobRoles: true }
     });
 
+    // Notify workers whose location matches the job location
+    if (job.locationText) {
+      const jobLocation = job.locationText.trim().toLowerCase();
+      const locationWorkers = await prisma.workerProfile.findMany({
+        where: {
+          locationText: { not: null },
+          availability: { not: 'BUSY' }
+        },
+        select: { userId: true, locationText: true }
+      });
+
+      const matchingWorkers = locationWorkers.filter(
+        worker => (worker.locationText || '').trim().toLowerCase() === jobLocation
+      );
+
+      await Promise.all(matchingWorkers.map(worker =>
+        createNotification(
+          worker.userId,
+          'JOB_POSTED',
+          'New Job Near You',
+          `New job "${job.title}" has been posted in your area (${job.locationText}). Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
+          job.id
+        )
+      ));
+    }
+
     res.status(201).json({ success: true, data: job });
   } catch (error) {
     next(error);
@@ -83,9 +185,17 @@ exports.getJobById = async (req, res, next) => {
       include: {
         employer: true,
         jobRoles: true,
+        reviews: true,
         applications: {
-          where: { status: 'HIRED' },
-          select: { jobRoleId: true }
+          where: { status: { in: ['HIRED', 'COMPLETED'] } },
+          select: {
+            jobRoleId: true,
+            workStatus: true,
+            workNote: true,
+            worker: {
+              include: { user: { select: { id: true } } }
+            }
+          }
         }
       }
     });
@@ -107,7 +217,64 @@ exports.getJobById = async (req, res, next) => {
       filledCount: roleHiredCount[role.id] || 0
     }));
 
-    res.json({ success: true, data: { ...job, jobRoles } });
+    // Unique hired workers with user id + name (used for ratings/feedback)
+    const hiredWorkers = [...new Map(
+      job.applications
+        .filter(a => a.worker)
+        .map(a => [a.worker.id, {
+          id: a.worker.id,
+          userId: a.worker.user.id,
+          fullName: a.worker.fullName,
+          skills: a.worker.skills,
+          workStatus: a.workStatus,
+          workNote: a.workNote
+        }])
+    ).values()];
+
+    // Review progress for the current user
+    const myReviews = job.reviews.filter(r => r.reviewerId === req.user.id);
+    const requiredReviews = req.user.role === 'EMPLOYER'
+      ? hiredWorkers.length
+      : (hiredWorkers.length > 0 ? 1 : 0);
+    const reviewComplete = requiredReviews === 0 || (requiredReviews > 0 && myReviews.length >= requiredReviews);
+
+    res.json({
+      success: true,
+      data: {
+        ...job,
+        jobRoles,
+        hiredWorkers,
+        myReviews,
+        requiredReviews,
+        reviewComplete
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getJobApplications = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const job = await prisma.job.findUnique({ where: { id } });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!employer || job.employerId !== employer.id) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const applications = await prisma.jobApplication.findMany({
+      where: { jobId: id },
+      include: { worker: true },
+      orderBy: { appliedAt: 'desc' }
+    });
+
+    res.json({ success: true, data: applications });
   } catch (error) {
     next(error);
   }
@@ -179,6 +346,9 @@ exports.updateJob = async (req, res, next) => {
       }
     }
 
+    // Keep role fill counts and job status consistent with actual hires
+    await recomputeJobFill(id);
+
     const jobWithRoles = await prisma.job.findUnique({
       where: { id },
       include: { jobRoles: true }
@@ -193,7 +363,11 @@ exports.updateJob = async (req, res, next) => {
 exports.updateJobStatus = async (req, res, next) => {
   try {
     const { status } = req.body;
-    const job = await prisma.job.findUnique({ where: { id: req.params.id } });
+    const newStatus = status.toUpperCase();
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.id },
+      include: { applications: { where: { status: 'HIRED' } } }
+    });
 
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
@@ -206,8 +380,70 @@ exports.updateJobStatus = async (req, res, next) => {
 
     const updatedJob = await prisma.job.update({
       where: { id: req.params.id },
-      data: { status: status.toUpperCase() }
+      data: { status: newStatus }
     });
+
+    // If the job is cancelled, free the hired workers and notify them
+    if (newStatus === 'CANCELLED') {
+      const hiredWorkerIds = [...new Set(job.applications.map(a => a.workerId))];
+
+      for (const workerId of hiredWorkerIds) {
+        await prisma.workerProfile.update({
+          where: { id: workerId },
+          data: { availability: 'AVAILABLE' }
+        });
+      }
+
+      for (const app of job.applications) {
+        const worker = await prisma.workerProfile.findUnique({
+          where: { id: app.workerId },
+          select: { userId: true }
+        });
+        if (worker) {
+          await createNotification(
+            worker.userId,
+            'JOB_CANCELLED',
+            'Job Cancelled',
+            `The job "${job.title}" you were assigned to has been cancelled. You are now available for new jobs.`,
+            job.id
+          );
+        }
+      }
+    }
+
+    // If the job is completed, free the hired workers and notify them
+    if (newStatus === 'COMPLETED') {
+      // Mark all hired applications as completed
+      await prisma.jobApplication.updateMany({
+        where: { jobId: job.id, status: 'HIRED' },
+        data: { status: 'COMPLETED', workStatus: 'COMPLETED' }
+      });
+
+      const hiredWorkerIds = [...new Set(job.applications.map(a => a.workerId))];
+
+      for (const workerId of hiredWorkerIds) {
+        await prisma.workerProfile.update({
+          where: { id: workerId },
+          data: { availability: 'AVAILABLE' }
+        });
+      }
+
+      for (const app of job.applications) {
+        const worker = await prisma.workerProfile.findUnique({
+          where: { id: app.workerId },
+          select: { userId: true }
+        });
+        if (worker) {
+          await createNotification(
+            worker.userId,
+            'JOB_COMPLETED',
+            'Job Completed',
+            `The job "${job.title}" has been marked as completed.`,
+            job.id
+          );
+        }
+      }
+    }
 
     res.json({ success: true, data: updatedJob });
   } catch (error) {
@@ -281,8 +517,19 @@ exports.hireWorker = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Worker not found' });
     }
 
-    // Determine which role to assign
-    let assignedRoleId = jobRoleId;
+    if (worker.availability !== 'AVAILABLE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Worker is not available (already assigned to another job)'
+      });
+    }
+
+    // Honor the role the worker applied for, if any, else auto-assign
+    const existingApplication = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId } }
+    });
+
+    let assignedRoleId = jobRoleId || existingApplication?.jobRoleId || null;
 
     if (!assignedRoleId) {
       // Auto-assign based on worker skills matching role skills
@@ -310,18 +557,17 @@ exports.hireWorker = async (req, res, next) => {
 
     // Validate the role exists and has space
     if (assignedRoleId) {
-      const role = await prisma.jobRole.findUnique({ where: { id: assignedRoleId } });
+      const role = await prisma.jobRole.findUnique({
+        where: { id: assignedRoleId },
+        include: { applications: { where: { status: { in: ['HIRED', 'COMPLETED'] } } } }
+      });
       if (!role || role.jobId !== jobId) {
         return res.status(400).json({ success: false, message: 'Invalid role' });
       }
-      if (role.filledCount >= role.count) {
+      if (role.applications.length >= role.count) {
         return res.status(400).json({ success: false, message: 'Role already fully filled' });
       }
     }
-
-    const existingApplication = await prisma.jobApplication.findUnique({
-      where: { jobId_workerId: { jobId, workerId } }
-    });
 
     let application;
     if (existingApplication) {
@@ -343,28 +589,14 @@ exports.hireWorker = async (req, res, next) => {
       });
     }
 
-    // Update filledCount for the assigned role
-    if (assignedRoleId) {
-      const hiredForRole = await prisma.jobApplication.count({
-        where: { jobId, jobRoleId: assignedRoleId, status: 'HIRED' }
-      });
+    // Mark the worker as busy so they are not matched to other jobs
+    await prisma.workerProfile.update({
+      where: { id: workerId },
+      data: { availability: 'BUSY' }
+    });
 
-      await prisma.jobRole.update({
-        where: { id: assignedRoleId },
-        data: { filledCount: hiredForRole }
-      });
-    }
-
-    // Check if all roles are fully filled
-    const allRoles = await prisma.jobRole.findMany({ where: { jobId } });
-    const allFilled = allRoles.length > 0 && allRoles.every(r => r.filledCount >= r.count);
-
-    if (allFilled) {
-      await prisma.job.update({
-        where: { id: jobId },
-        data: { status: 'IN_PROGRESS' }
-      });
-    }
+    // Recompute role fill counts and flip the project to IN_PROGRESS when fully staffed
+    await recomputeJobFill(jobId);
 
     // Create notification for the hired worker
     const workerUser = await prisma.workerProfile.findUnique({
@@ -388,6 +620,102 @@ exports.hireWorker = async (req, res, next) => {
     }
 
     res.json({ success: true, data: application });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.removeWorkerFromJob = async (req, res, next) => {
+  try {
+    const { id: jobId, workerId } = req.params;
+
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!employer || job.employerId !== employer.id) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot remove workers from a completed or cancelled job'
+      });
+    }
+
+    const worker = await prisma.workerProfile.findUnique({
+      where: { id: workerId },
+      include: { user: { select: { id: true } } }
+    });
+    if (!worker) {
+      return res.status(404).json({ success: false, message: 'Worker not found' });
+    }
+
+    const result = await releaseWorkerFromJob({ jobId, workerId, appStatus: 'REJECTED' });
+    if (!result.released) {
+      return res.status(400).json({ success: false, message: 'Worker is not hired on this job' });
+    }
+
+    if (worker.user) {
+      await createNotification(
+        worker.user.id,
+        'REMOVED_FROM_JOB',
+        'Removed from Job',
+        `You have been removed from "${job.title}". You are now available for new jobs.`,
+        jobId
+      );
+    }
+
+    res.json({ success: true, data: { message: 'Worker removed from job' } });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateWorkerWorkStatus = async (req, res, next) => {
+  try {
+    const { id: jobId, workerId } = req.params;
+    const { workStatus, workNote } = req.body || {};
+
+    const allowed = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
+    if (workStatus && !allowed.includes(workStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid work status' });
+    }
+
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+      return res.status(400).json({ success: false, message: 'Job is no longer active' });
+    }
+
+    const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!employer || job.employerId !== employer.id) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const app = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId } }
+    });
+    if (!app || app.status !== 'HIRED') {
+      return res.status(400).json({ success: false, message: 'Worker is not hired on this job' });
+    }
+
+    const data = {};
+    if (workStatus) data.workStatus = workStatus;
+    if (workNote !== undefined) data.workNote = workNote;
+
+    const updated = await prisma.jobApplication.update({
+      where: { id: app.id },
+      data
+    });
+
+    res.json({ success: true, data: updated });
   } catch (error) {
     next(error);
   }
@@ -430,6 +758,12 @@ exports.completeJob = async (req, res, next) => {
     const updatedJob = await prisma.job.update({
       where: { id: jobId },
       data: { status: 'COMPLETED' }
+    });
+
+    // Mark all hired applications as completed
+    await prisma.jobApplication.updateMany({
+      where: { jobId, status: 'HIRED' },
+      data: { status: 'COMPLETED', workStatus: 'COMPLETED' }
     });
 
     // Update all hired workers' availability back to AVAILABLE

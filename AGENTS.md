@@ -68,6 +68,41 @@ Jobs → Disputes (1:many)
 Jobs → Reviews (1:many)
 ```
 
+### Multi-Worker Project (Job Roles) Model
+A single `Job` (project) can require multiple workers across different **roles**.
+- `Job.workersNeeded` = sum of all role `count`s.
+- `JobRole` holds `roleName`, `skills[]`, `count` (required), `filledCount` (derived).
+- `JobApplication` ties a worker to the job AND an optional `jobRoleId` (the role they applied for / were hired for).
+- **`filledCount` is always DERIVED from real hired/COMPLETED applications** — never trust the stored value as a source of truth; recompute it (see `recomputeJobFill` below).
+
+## Multi-Worker Project & Per-Worker Tracking
+
+### Job Fill Logic (CRITICAL — was a bug)
+- **Never compute "is job full" from a single role's stored `filledCount`.** The old bug: hiring a worker with no matching role (`jobRoleId = null`) never bumped any count, so fully-staffed jobs stayed `OPEN` forever.
+- Use the shared helper in `backend/src/controllers/job.controller.js`:
+  `recomputeJobFill(jobId)` — regroups `HIRED`/`COMPLETED` apps by `jobRoleId`, rewrites every role's `filledCount`, and sets job status: `IN_PROGRESS` when `hiredCount >= workersNeeded`, back to `OPEN` if understaffed while in progress. Never touches `COMPLETED`/`CANCELLED`.
+- Call `recomputeJobFill` after: `hireWorker`, `releaseWorkerFromJob`, `updateJob` (role edits). On job completion all `HIRED` apps become `COMPLETED` + `workStatus: 'COMPLETED'` and workers return to `AVAILABLE`.
+- `releaseWorkerFromJob({ jobId, workerId, appStatus })` — shared helper that frees a worker (sets `AVAILABLE`), sets app status (`WITHDRAWN` for worker-cancel, `REJECTED` for employer-remove) and runs `recomputeJobFill`.
+
+### Role-aware Apply
+- `POST /api/worker/jobs/:id/apply` accepts optional `{ jobRoleId }`. Worker picks the role they're applying for. Validated: role belongs to job, has remaining capacity (from real hired count). No role → auto-pick best skill-matching role with space (else null).
+- `hireWorker` honors the applied `jobRoleId` passed in body OR the one already on the application.
+- Worker availability: hiring a worker sets them `BUSY` (can't apply/hired elsewhere) until freed.
+
+### Per-Worker Work Status (NOT milestones)
+- MongoDB-like per-application fields on `JobApplication`: `workStatus` (NOT_STARTED | IN_PROGRESS | COMPLETED) and `workNote String?`.
+- **Rationale**: milestones remain job-level; each worker is tracked separately via `workStatus`/`workNote` only (simple, per design choice).
+- Endpoints:
+  - `PUT /api/jobs/:id/workers/:workerId/status` (EMPLOYER) — set any hired worker's status/note.
+  - `PUT /api/worker/applications/:id/work-status` (WORKER) — hired worker sets their own.
+- `getJobById` returns `hiredWorkers[]` each with `{ id, userId, fullName, skills, workStatus, workNote }`, plus `jobRoles[]` with `filledCount`.
+- Completion is **whole-project** (not per-worker): when the job is marked complete, all hired workers' apps → `COMPLETED` and workStatus → `COMPLETED`, freeing everyone at once.
+
+### Prisma Schema Notes
+- `JobApplication` fields: `id, jobId, workerId, jobRoleId?, status, matchScore?, matchReasons?, workStatus (default "NOT_STARTED"), workNote?, appliedAt` with `@@unique([jobId, workerId])`.
+- `ApplicationStatus` enum includes: PENDING, ACCEPTED, REJECTED, HIRED, COMPLETED, WITHDRAWN.
+- Migration: `20260905183019_add_work_status` (added workStatus/workNote).
+
 ## AI Matching Algorithm
 
 ### Hard Filters
@@ -100,7 +135,9 @@ Each match includes:
 - `PUT /api/worker/profile` — Update profile
 - `POST /api/worker/documents` — Upload verification docs
 - `GET /api/worker/jobs` — Available jobs
-- `POST /api/worker/jobs/:id/apply` — Apply to job
+- `POST /api/worker/jobs/:id/apply` — Apply to job (optional `{ jobRoleId }`)
+- `PUT /api/worker/jobs/:id/cancel` — Worker cancels hired job (status → WITHDRAWN, freezes slot)
+- `PUT /api/worker/applications/:id/work-status` — Worker updates own workStatus/workNote
 - `GET /api/worker/applications` — My applications
 
 ### Employer
@@ -117,6 +154,8 @@ Each match includes:
 - `POST /api/jobs/:id/hire/:workerId` — Hire worker
 - `PUT /api/jobs/:id/status` — Update status
 - `PUT /api/jobs/:id/complete` — Mark job as completed (both parties)
+- `POST /api/jobs/:id/remove/:workerId` — Employer removes hired worker (status → REJECTED)
+- `PUT /api/jobs/:id/workers/:workerId/status` — Employer sets hired worker's workStatus/workNote
 
 ### Notifications
 - `GET /api/notifications` — Get my notifications
@@ -245,6 +284,15 @@ const result = await prisma.payment.aggregate({
 - **Cause**: Using `authorize()` without `authenticate` first, so `req.user` is undefined
 - **Fix**: Always chain `authenticate` before `authorize` in routes: `router.get('/', authenticate, authorize(), handler)`
 - **File**: Any new route file in `backend/src/routes/`
+
+### 5. Job stays OPEN when fully staffed (CRITICAL, now fixed)
+- **Symptom**: Multi-worker project shows OPEN for both sides even though all role slots are filled.
+- **Cause**: `hireWorker` computed "all filled" from each role's stored `filledCount`, which never incremented when a worker was hired with `jobRoleId = null` (no skill overlap), so the job never flipped to `IN_PROGRESS`.
+- **Fix**: Never trust stored `filledCount`. Use `recomputeJobFill(jobId)` in `job.controller.js` (groups real `HIRED`/`COMPLETED` apps by role, derives `filledCount`, sets `IN_PROGRESS`/`OPEN`). Role-aware apply ensures roles are set going forward.
+
+### 6. Prisma engine lock on migrate while backend runs
+- **Symptom**: `prisma migrate dev`/`generate` hangs or fails "already in use".
+- **Fix**: Kill running backend node processes (incl. nodemon) BEFORE Prisma CLI, then restart backend after. Commands on Windows: `powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`.
 
 ## Express.js Best Practices
 

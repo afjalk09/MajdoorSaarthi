@@ -1,17 +1,6 @@
 const prisma = require('../lib/prisma');
-
-// Haversine formula to calculate distance between two coordinates in km
-function haversineDistance(lat1, lng1, lat2, lng2) {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
+const { createNotification } = require('./notification.controller');
+const { releaseWorkerFromJob } = require('./job.controller');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -66,7 +55,6 @@ exports.updateProfile = async (req, res, next) => {
         locationLat: location_lat,
         locationLng: location_lng,
         locationText: location_text,
-        availability: availability?.toUpperCase() || 'AVAILABLE',
         expectedWageMin: expected_wage_min,
         expectedWageMax: expected_wage_max,
         wageType: wage_type?.toUpperCase() || 'DAILY'
@@ -109,47 +97,24 @@ exports.getAvailableJobs = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
-    const MAX_DISTANCE_KM = 50;
-
-    // Build where clause
     const where = { status: 'OPEN' };
 
-    // Only filter by skills if worker has skills
-    if (profile.skills && profile.skills.length > 0) {
-      where.requiredSkills = { hasSome: profile.skills };
+    // Match by location text (case-insensitive). Jobs without a location are visible to all.
+    const workerLocation = (profile.locationText || '').trim();
+    if (workerLocation) {
+      where.OR = [
+        { locationText: null },
+        { locationText: { equals: workerLocation, mode: 'insensitive' } }
+      ];
     }
 
     const jobs = await prisma.job.findMany({
       where,
-      include: { employer: true },
+      include: { employer: true, jobRoles: true },
       orderBy: { createdAt: 'desc' }
     });
 
-    // Calculate distance and filter by proximity
-    const workerLat = profile.locationLat;
-    const workerLng = profile.locationLng;
-
-    const jobsWithDistance = jobs
-      .map(job => {
-        let distance = null;
-        if (workerLat && workerLng && job.locationLat && job.locationLng) {
-          distance = haversineDistance(workerLat, workerLng, job.locationLat, job.locationLng);
-        }
-        return { ...job, distance };
-      })
-      .filter(job => {
-        // Show jobs without location data (can't filter by distance)
-        if (job.distance === null) return true;
-        return job.distance <= MAX_DISTANCE_KM;
-      })
-      .sort((a, b) => {
-        // Jobs without distance go to the end
-        if (a.distance === null) return 1;
-        if (b.distance === null) return -1;
-        return a.distance - b.distance;
-      });
-
-    res.json({ success: true, data: jobsWithDistance });
+    res.json({ success: true, data: jobs });
   } catch (error) {
     next(error);
   }
@@ -158,15 +123,33 @@ exports.getAvailableJobs = async (req, res, next) => {
 exports.applyToJob = async (req, res, next) => {
   try {
     const { id: jobId } = req.params;
+    const { jobRoleId } = req.body || {};
 
     const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
     if (!profile) {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (profile.availability === 'BUSY') {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already assigned to a job and cannot apply for another'
+      });
+    }
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        employer: { select: { userId: true } },
+        jobRoles: true
+      }
+    });
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    if (job.status !== 'OPEN') {
+      return res.status(400).json({ success: false, message: 'This job is no longer accepting applications' });
     }
 
     const existingApplication = await prisma.jobApplication.findUnique({
@@ -177,15 +160,111 @@ exports.applyToJob = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Already applied' });
     }
 
+    // Resolve the role the worker is applying for
+    let appliedRoleId = jobRoleId;
+
+    if (appliedRoleId) {
+      const role = await prisma.jobRole.findUnique({
+        where: { id: appliedRoleId },
+        include: { applications: { where: { status: { in: ['HIRED', 'COMPLETED'] } } } }
+      });
+      if (!role || role.jobId !== jobId) {
+        return res.status(400).json({ success: false, message: 'Invalid role' });
+      }
+      if (role.applications.length >= role.count) {
+        return res.status(400).json({ success: false, message: 'Role is already fully filled' });
+      }
+    } else {
+      // Auto-pick the best matching role that still has space
+      let bestRole = null;
+      let bestScore = 0;
+
+      for (const role of job.jobRoles) {
+        if (role.filledCount >= role.count) continue;
+
+        const workerSkills = profile.skills || [];
+        const roleSkills = role.skills || [];
+        const matchedSkills = workerSkills.filter(s => roleSkills.includes(s));
+        const score = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestRole = role;
+        }
+      }
+
+      if (bestRole) {
+        appliedRoleId = bestRole.id;
+      }
+    }
+
     const application = await prisma.jobApplication.create({
       data: {
         jobId,
         workerId: profile.id,
-        status: 'PENDING'
+        status: 'PENDING',
+        jobRoleId: appliedRoleId
       }
     });
 
+    // Notify the employer to review the application
+    if (job.employer?.userId) {
+      await createNotification(
+        job.employer.userId,
+        'APPLICATION_RECEIVED',
+        'New Job Application',
+        `${profile.fullName} applied for "${job.title}". Review and accept the application.`,
+        jobId
+      );
+    }
+
     res.status(201).json({ success: true, data: application });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.cancelHiredJob = async (req, res, next) => {
+  try {
+    const { id: jobId } = req.params;
+
+    const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!profile) {
+      return res.status(400).json({ success: false, message: 'Complete your profile first' });
+    }
+
+    const app = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId: profile.id } },
+      include: { job: { include: { employer: { select: { userId: true } } } } }
+    });
+
+    if (!app || app.status !== 'HIRED') {
+      return res.status(400).json({ success: false, message: 'You are not assigned to this job' });
+    }
+
+    if (app.job.status === 'COMPLETED' || app.job.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot cancel a job that is already ${app.job.status.toLowerCase()}`
+      });
+    }
+
+    const result = await releaseWorkerFromJob({ jobId, workerId: profile.id, appStatus: 'WITHDRAWN' });
+    if (!result.released) {
+      return res.status(400).json({ success: false, message: 'You are not assigned to this job' });
+    }
+
+    if (app.job.employer?.userId) {
+      await createNotification(
+        app.job.employer.userId,
+        'WORKER_CANCELLED',
+        'Worker Cancelled Job',
+        `${profile.fullName} cancelled "${app.job.title}". The slot is now open.`,
+        jobId
+      );
+    }
+
+    res.json({ success: true, data: { message: 'Job cancelled' } });
   } catch (error) {
     next(error);
   }
@@ -201,11 +280,57 @@ exports.getApplications = async (req, res, next) => {
 
     const applications = await prisma.jobApplication.findMany({
       where: { workerId: profile.id },
-      include: { job: true },
+      include: { job: { include: { employer: true } } },
       orderBy: { appliedAt: 'desc' }
     });
 
     res.json({ success: true, data: applications });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updateMyWorkStatus = async (req, res, next) => {
+  try {
+    const { id: jobId } = req.params;
+    const { workStatus, workNote } = req.body || {};
+
+    const allowed = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
+    if (workStatus && !allowed.includes(workStatus)) {
+      return res.status(400).json({ success: false, message: 'Invalid work status' });
+    }
+
+    const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!profile) {
+      return res.status(400).json({ success: false, message: 'Complete your profile first' });
+    }
+
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+      return res.status(400).json({ success: false, message: 'Job is no longer active' });
+    }
+
+    const app = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId: profile.id } }
+    });
+    if (!app || app.status !== 'HIRED') {
+      return res.status(400).json({ success: false, message: 'You are not hired on this job' });
+    }
+
+    const data = {};
+    if (workStatus) data.workStatus = workStatus;
+    if (workNote !== undefined) data.workNote = workNote;
+
+    const updated = await prisma.jobApplication.update({
+      where: { id: app.id },
+      data
+    });
+
+    res.json({ success: true, data: updated });
   } catch (error) {
     next(error);
   }

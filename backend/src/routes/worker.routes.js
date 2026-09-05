@@ -8,6 +8,8 @@ router.put('/profile', authenticate, authorize('worker'), workerController.updat
 router.post('/documents', authenticate, authorize('worker'), workerController.uploadDocument);
 router.get('/jobs', authenticate, authorize('worker'), workerController.getAvailableJobs);
 router.post('/jobs/:id/apply', authenticate, authorize('worker'), workerController.applyToJob);
+router.put('/jobs/:id/cancel', authenticate, authorize('worker'), workerController.cancelHiredJob);
+router.put('/applications/:id/work-status', authenticate, authorize('worker'), workerController.updateMyWorkStatus);
 router.get('/applications', authenticate, authorize('worker'), workerController.getApplications);
 
 module.exports = router;

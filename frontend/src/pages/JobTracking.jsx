@@ -7,9 +7,18 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/context/AuthContext';
 import MilestoneCard from '@/components/MilestoneCard';
 import DisputeForm from '@/components/DisputeForm';
-import ReviewModal from '@/components/ReviewModal';
+import JobReviewPanel from '@/components/JobReviewPanel';
 import api from '@/services/api';
 import { ArrowLeft, MapPin, IndianRupee, Calendar, Users } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+
+const WORK_STATUS_LABELS = {
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
+  COMPLETED: 'Completed'
+};
 
 export default function JobTracking() {
   const { id } = useParams();
@@ -18,8 +27,46 @@ export default function JobTracking() {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
+  const [workDrafts, setWorkDrafts] = useState({});
+  const [savingWork, setSavingWork] = useState({});
 
   const isEmployer = user.role === 'EMPLOYER';
+
+  const updateWorkDraft = (workerId, field, value) => {
+    setWorkDrafts(prev => ({ ...prev, [workerId]: { ...(prev[workerId] || {}), [field]: value } }));
+  };
+
+  const saveEmployerWorkStatus = async (workerId) => {
+    const draft = workDrafts[workerId] || {};
+    setSavingWork(prev => ({ ...prev, [workerId]: true }));
+    try {
+      await api.put(`/jobs/${id}/workers/${workerId}/status`, {
+        workStatus: draft.workStatus,
+        workNote: draft.workNote
+      });
+      fetchJob();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update worker status');
+    } finally {
+      setSavingWork(prev => ({ ...prev, [workerId]: false }));
+    }
+  };
+
+  const saveMyWorkStatus = async () => {
+    const draft = workDrafts['me'] || {};
+    setSavingWork(prev => ({ ...prev, me: true }));
+    try {
+      await api.put(`/worker/applications/${id}/work-status`, {
+        workStatus: draft.workStatus,
+        workNote: draft.workNote
+      });
+      fetchJob();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update work status');
+    } finally {
+      setSavingWork(prev => ({ ...prev, me: false }));
+    }
+  };
 
   useEffect(() => {
     fetchJob();
@@ -48,6 +95,28 @@ export default function JobTracking() {
       alert(err.response?.data?.message || 'Failed to complete job');
     } finally {
       setCompleting(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!confirm('Cancel this job? You will become available for new jobs.')) return;
+    try {
+      await api.put(`/worker/jobs/${id}/cancel`);
+      alert('Job cancelled — you are now available.');
+      fetchJob();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to cancel job');
+    }
+  };
+
+  const handleRemoveWorker = async (workerId, name) => {
+    if (!confirm(`Remove ${name} from this job? They will become available again.`)) return;
+    try {
+      await api.post(`/jobs/${id}/remove/${workerId}`);
+      alert('Worker removed');
+      fetchJob();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to remove worker');
     }
   };
 
@@ -137,44 +206,166 @@ export default function JobTracking() {
         </Card>
 
         <div className="space-y-6">
-          <MilestoneCard jobId={id} isEmployer={isEmployer} />
+          {job.status === 'COMPLETED' && !job.reviewComplete ? (
+            <JobReviewPanel
+              job={job}
+              isEmployer={isEmployer}
+              onReviewSubmitted={fetchJob}
+            />
+          ) : (
+            <>
+              <MilestoneCard jobId={id} isEmployer={isEmployer} />
 
-          {job.status === 'IN_PROGRESS' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Job Actions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3">
-                  {job.status === 'IN_PROGRESS' && (
-                    <Button
-                      onClick={handleCompleteJob}
-                      disabled={completing}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      {completing ? 'Completing...' : 'Mark as Completed'}
-                    </Button>
-                  )}
-                  <DisputeForm jobId={id} onDisputeRaised={fetchJob} />
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              {(job.status === 'IN_PROGRESS' || job.status === 'OPEN') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Job Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {isEmployer ? (
+                      (job.hiredWorkers && job.hiredWorkers.length > 0) ? (
+                        <div className="space-y-3">
+                          <p className="text-sm font-medium text-muted-foreground mb-1">Hired Workers</p>
+                          {job.hiredWorkers.map((w) => {
+                            const draft = workDrafts[w.id] || {};
+                            return (
+                              <div key={w.id} className="border rounded-lg p-3">
+                                <div className="flex items-center justify-between">
+                                  <div>
+                                    <p className="font-medium">{w.fullName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {w.skills?.length ? w.skills.join(', ') : 'No skills listed'}
+                                    </p>
+                                  </div>
+                                  <Button variant="destructive" size="sm" onClick={() => handleRemoveWorker(w.id, w.fullName)}>
+                                    Remove Worker
+                                  </Button>
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                  <div>
+                                    <Label className="text-xs">Work Status</Label>
+                                    <Select
+                                      value={(draft.workStatus ?? w.workStatus) || 'NOT_STARTED'}
+                                      onValueChange={(v) => updateWorkDraft(w.id, 'workStatus', v)}
+                                    >
+                                      <SelectTrigger className="mt-1">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="NOT_STARTED">Not Started</SelectItem>
+                                        <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                                        <SelectItem value="COMPLETED">Completed</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs">Note</Label>
+                                    <Textarea
+                                      className="mt-1"
+                                      rows={2}
+                                      placeholder="Progress note..."
+                                      value={draft.workNote !== undefined ? draft.workNote : (w.workNote || '')}
+                                      onChange={(e) => updateWorkDraft(w.id, 'workNote', e.target.value)}
+                                    />
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    className="w-full"
+                                    disabled={savingWork[w.id]}
+                                    onClick={() => saveEmployerWorkStatus(w.id)}
+                                  >
+                                    {savingWork[w.id] ? 'Saving...' : 'Save Status'}
+                                  </Button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No hired workers yet.</p>
+                      )
+                    ) : (
+                      <div className="flex flex-wrap gap-3">
+                        {job.status === 'IN_PROGRESS' && (
+                          <Button
+                            onClick={handleCompleteJob}
+                            disabled={completing}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            {completing ? 'Completing...' : 'Mark as Completed'}
+                          </Button>
+                        )}
+                        <Button variant="destructive" onClick={handleCancelJob}>
+                          Cancel Job
+                        </Button>
+                        <DisputeForm jobId={id} onDisputeRaised={fetchJob} />
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
 
-          {job.status === 'COMPLETED' && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Review & Feedback</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  This job is completed. Leave a review to build trust.
-                </p>
-                <Button variant="outline" onClick={() => navigate('/dashboard')}>
-                  Back to Dashboard to Leave Review
-                </Button>
-              </CardContent>
-            </Card>
+              {!isEmployer && job.hiredWorkers && job.hiredWorkers.length > 0 && (job.status === 'OPEN' || job.status === 'IN_PROGRESS') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">My Work Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const myRole = job.jobRoles?.find(r => r.id === job.hiredWorkers[0]?.jobRoleId);
+                      const my = job.hiredWorkers[0] || {};
+                      const draft = workDrafts['me'] || {};
+                      return (
+                        <div className="space-y-2">
+                          {myRole && <p className="text-sm text-muted-foreground">Role: {myRole.roleName}</p>}
+                          <div>
+                            <Label className="text-xs">My Status</Label>
+                            <Select
+                              value={(draft.workStatus ?? my.workStatus) || 'NOT_STARTED'}
+                              onValueChange={(v) => updateWorkDraft('me', 'workStatus', v)}
+                            >
+                              <SelectTrigger className="mt-1">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NOT_STARTED">Not Started</SelectItem>
+                                <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                                <SelectItem value="COMPLETED">Completed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Note</Label>
+                            <Textarea
+                              className="mt-1"
+                              rows={2}
+                              placeholder="Update the employer on your progress..."
+                              value={draft.workNote !== undefined ? draft.workNote : (my.workNote || '')}
+                              onChange={(e) => updateWorkDraft('me', 'workNote', e.target.value)}
+                            />
+                          </div>
+                          <Button
+                            className="w-full"
+                            disabled={savingWork.me}
+                            onClick={saveMyWorkStatus}
+                          >
+                            {savingWork.me ? 'Saving...' : 'Update My Progress'}
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+
+              {job.status === 'COMPLETED' && (
+                <JobReviewPanel
+                  job={job}
+                  isEmployer={isEmployer}
+                  onReviewSubmitted={fetchJob}
+                />
+              )}
+            </>
           )}
         </div>
       </div>

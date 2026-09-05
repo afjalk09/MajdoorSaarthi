@@ -15,7 +15,10 @@ export default function NotificationBell() {
   useEffect(() => {
     fetchUnreadCount();
     fetchRecentNotifications();
-    const interval = setInterval(fetchUnreadCount, 30000);
+    const interval = setInterval(() => {
+      fetchUnreadCount();
+      fetchRecentNotifications();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -60,7 +63,12 @@ export default function NotificationBell() {
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => {
+      if (open) {
+        fetchUnreadCount();
+        fetchRecentNotifications();
+      }
+    }}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />

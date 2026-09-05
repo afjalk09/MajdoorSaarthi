@@ -38,6 +38,7 @@ enum ApplicationStatus {
   REJECTED
   HIRED
   COMPLETED
+  WITHDRAWN
 }
 
 enum PaymentMethod {
@@ -201,6 +202,8 @@ model JobApplication {
   status       ApplicationStatus @default(PENDING)
   matchScore   Float?
   matchReasons Json?
+  workStatus   String            @default("NOT_STARTED")
+  workNote     String?
   appliedAt    DateTime          @default(now())
 
   job     Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)

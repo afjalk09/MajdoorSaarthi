@@ -56,6 +56,8 @@ export default function Notifications() {
       case 'DISPUTE_RAISED': return '⚠️';
       case 'DISPUTE_RESOLVED': return '🔧';
       case 'REVIEW_RECEIVED': return '⭐';
+      case 'WORKER_CANCELLED': return '🚪';
+      case 'REMOVED_FROM_JOB': return '🚫';
       default: return '📌';
     }
   };

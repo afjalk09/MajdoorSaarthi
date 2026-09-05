@@ -31,7 +31,7 @@ const authenticate = async (req, res, next) => {
 
 const authorize = (...roles) => {
   return (req, res, next) => {
-    if (!roles.map(r => r.toUpperCase()).includes(req.user.role)) {
+    if (roles.length > 0 && !roles.map(r => r.toUpperCase()).includes(req.user.role)) {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
     next();

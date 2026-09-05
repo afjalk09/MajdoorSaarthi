@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import NotificationBell from '@/components/NotificationBell';
-import ReviewModal from '@/components/ReviewModal';
 import DisputeForm from '@/components/DisputeForm';
+import JobReviewPanel from '@/components/JobReviewPanel';
 
 const EmployerDashboard = () => {
   const { user, logout } = useAuth();
@@ -43,9 +43,49 @@ const EmployerDashboard = () => {
   const [showWorkers, setShowWorkers] = useState(false);
   const [loadingWorkers, setLoadingWorkers] = useState(false);
 
+  // Applications modal
+  const [appsJob, setAppsJob] = useState(null);
+  const [applications, setApplications] = useState([]);
+  const [showApps, setShowApps] = useState(false);
+  const [loadingApplications, setLoadingApplications] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
+
+  const activeJobs = jobs.filter(j => j.status !== 'COMPLETED');
+  const historyJobs = jobs.filter(j => j.status === 'COMPLETED');
+
+  const [historyDetails, setHistoryDetails] = useState({});
+
+  useEffect(() => {
+    if (activeTab !== 'history') return;
+    let cancelled = false;
+
+    historyJobs.forEach(async (job) => {
+      if (historyDetails[job.id]) return;
+      try {
+        const res = await api.get(`/jobs/${job.id}`);
+        if (!cancelled) {
+          setHistoryDetails(prev => ({ ...prev, [job.id]: res.data.data }));
+        }
+      } catch (err) {
+        console.error('Failed to load job detail', err);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  const refreshHistoryDetail = async (jobId) => {
+    try {
+      const res = await api.get(`/jobs/${jobId}`);
+      setHistoryDetails(prev => ({ ...prev, [jobId]: res.data.data }));
+      fetchData();
+    } catch (err) {
+      console.error('Failed to reload job detail', err);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -150,6 +190,43 @@ const EmployerDashboard = () => {
     }
   };
 
+  const handleViewApplications = async (job) => {
+    setAppsJob(job);
+    setLoadingApplications(true);
+    try {
+      const res = await api.get(`/jobs/${job.id}/applications`);
+      setApplications(res.data.data || []);
+      setShowApps(true);
+    } catch (err) {
+      setError('Failed to load applications');
+    } finally {
+      setLoadingApplications(false);
+    }
+  };
+
+  const handleAcceptApplication = async (jobId, workerId) => {
+    try {
+      await api.post(`/jobs/${jobId}/hire/${workerId}`, {});
+      setSuccess('Application accepted — worker hired!');
+      setShowApps(false);
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to accept application');
+    }
+  };
+
+  const handleRemoveWorker = async (jobId, workerId, name) => {
+    if (!window.confirm(`Remove ${name} from this job? The worker will become available again.`)) return;
+    try {
+      await api.post(`/jobs/${jobId}/remove/${workerId}`);
+      setSuccess('Worker removed from job');
+      if (appsJob) handleViewApplications(appsJob);
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to remove worker');
+    }
+  };
+
   const handleStatusUpdate = async (jobId, status) => {
     try {
       await api.put(`/jobs/${jobId}/status`, { status });
@@ -195,6 +272,7 @@ const EmployerDashboard = () => {
           <Button variant="outline" onClick={() => navigate('/employer/profile')}>My Profile</Button>
           <Button variant={activeTab === 'create' ? 'default' : 'outline'} onClick={() => setActiveTab('create')}>Create Job</Button>
           <Button variant={activeTab === 'jobs' ? 'default' : 'outline'} onClick={() => setActiveTab('jobs')}>My Jobs</Button>
+          <Button variant={activeTab === 'history' ? 'default' : 'outline'} onClick={() => setActiveTab('history')}>History</Button>
         </div>
 
         {/* Create Job Tab */}
@@ -315,14 +393,14 @@ const EmployerDashboard = () => {
         {activeTab === 'jobs' && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">My Jobs</h2>
-            {jobs.length === 0 ? (
+            {activeJobs.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   You haven't posted any jobs yet.
                 </CardContent>
               </Card>
             ) : (
-              jobs.map((job) => (
+              activeJobs.map((job) => (
                 <Card key={job.id}>
                   <CardHeader>
                     <div className="flex justify-between items-start">
@@ -368,6 +446,9 @@ const EmployerDashboard = () => {
                             <Button variant="outline" onClick={() => handleGetMatches(job)}>
                               AI Match
                             </Button>
+                            <Button variant="outline" onClick={() => handleViewApplications(job)}>
+                              Applications
+                            </Button>
                             <Button variant="outline" onClick={() => handleBrowseWorkers(job)}>
                               Browse Workers
                             </Button>
@@ -387,18 +468,73 @@ const EmployerDashboard = () => {
                             <DisputeForm jobId={job.id} onDisputeRaised={fetchData} />
                           </>
                         )}
-                        {job.status === 'COMPLETED' && (
-                          <>
-                            <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/track`)}>
-                              View Details
-                            </Button>
-                          </>
-                        )}
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               ))
+            )}
+          </div>
+        )}
+
+        {/* History Tab */}
+        {activeTab === 'history' && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">Job History</h2>
+            {historyJobs.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No completed jobs yet.
+                </CardContent>
+              </Card>
+            ) : (
+              historyJobs.map((job) => {
+                const detail = historyDetails[job.id];
+                return (
+                  <Card key={job.id}>
+                    <CardHeader>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <CardTitle>{job.title}</CardTitle>
+                          <CardDescription>{job.locationText}</CardDescription>
+                        </div>
+                        <Badge variant="secondary">COMPLETED</Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex justify-between items-center text-sm mb-3">
+                        <span className="text-muted-foreground">
+                          Total Workers: {job.workersNeeded} | Duration: {job.durationDays} days
+                        </span>
+                        <span className="text-muted-foreground">
+                          Completed: {job.updatedAt ? new Date(job.updatedAt).toLocaleDateString() : 'N/A'}
+                        </span>
+                      </div>
+                      {detail ? (
+                        <div className="space-y-3">
+                          <JobReviewPanel
+                            job={detail}
+                            isEmployer={true}
+                            onReviewSubmitted={() => refreshHistoryDetail(job.id)}
+                          />
+                          <div className="flex justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={!detail.reviewComplete}
+                              onClick={() => navigate(`/jobs/${job.id}/track`)}
+                            >
+                              {detail.reviewComplete ? 'View Details' : 'Rate to unlock details'}
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Loading...</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })
             )}
           </div>
         )}
@@ -428,7 +564,7 @@ const EmployerDashboard = () => {
                         <div className="flex justify-between items-start mb-2">
                           <div>
                             <h4 className="font-semibold">{match.full_name}</h4>
-                            <p className="text-sm text-muted-foreground">{match.location_text} • {match.distance} km away</p>
+                            <p className="text-sm text-muted-foreground">{match.location_text}</p>
                           </div>
                           <Badge className="bg-green-600">{match.match_score}% match</Badge>
                         </div>
@@ -490,10 +626,7 @@ const EmployerDashboard = () => {
                         <div className="flex justify-between items-start mb-2">
                           <div>
                             <h4 className="font-semibold">{worker.fullName}</h4>
-                            <p className="text-sm text-muted-foreground">
-                              {worker.locationText}
-                              {worker.distance != null && ` • ${worker.distance.toFixed(1)} km away`}
-                            </p>
+                            <p className="text-sm text-muted-foreground">{worker.locationText}</p>
                           </div>
                           <div className="flex gap-2">
                             {worker.skillMatch > 0 && (
@@ -518,6 +651,71 @@ const EmployerDashboard = () => {
                         >
                           Hire Worker
                         </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Applications Modal */}
+        {showApps && appsJob && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle>Job Applications</CardTitle>
+                    <CardDescription>For: {appsJob.title}</CardDescription>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => setShowApps(false)}>×</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {loadingApplications ? (
+                  <p className="text-center text-muted-foreground py-4">Loading applications...</p>
+                ) : applications.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-4">
+                    No applications yet.
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {applications.map((app) => (
+                      <div key={app.id} className="border rounded-lg p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <div>
+                            <h4 className="font-semibold">{app.worker?.fullName}</h4>
+                            <p className="text-sm text-muted-foreground">
+                              {app.worker?.locationText}
+                              {app.worker?.skills?.length > 0 && ` • ${app.worker.skills.join(', ')}`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Applied: {new Date(app.appliedAt).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <Badge variant={app.status === 'PENDING' ? 'secondary' : 'default'}>
+                            {app.status}
+                          </Badge>
+                        </div>
+                        {app.status === 'PENDING' && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleAcceptApplication(appsJob.id, app.workerId)}
+                          >
+                            Accept Application
+                          </Button>
+                        )}
+                        {app.status === 'HIRED' && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleRemoveWorker(appsJob.id, app.workerId, app.worker?.fullName)}
+                          >
+                            Remove Worker
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>

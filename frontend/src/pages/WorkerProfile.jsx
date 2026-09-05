@@ -25,7 +25,6 @@ const WorkerProfile = () => {
   const [wageMin, setWageMin] = useState('');
   const [wageMax, setWageMax] = useState('');
   const [wageType, setWageType] = useState('DAILY');
-  const [availability, setAvailability] = useState('AVAILABLE');
 
   useEffect(() => {
     fetchProfile();
@@ -43,7 +42,6 @@ const WorkerProfile = () => {
       setWageMin(p.expectedWageMin || '');
       setWageMax(p.expectedWageMax || '');
       setWageType(p.wageType || 'DAILY');
-      setAvailability(p.availability || 'AVAILABLE');
     } catch (err) {
       if (err.response?.status === 404) {
         setEditing(true);
@@ -68,8 +66,7 @@ const WorkerProfile = () => {
         location_text: location,
         expected_wage_min: parseFloat(wageMin) || 0,
         expected_wage_max: parseFloat(wageMax) || 0,
-        wage_type: wageType,
-        availability: availability
+        wage_type: wageType
       });
       setProfile(res.data.data);
       setEditing(false);
@@ -88,7 +85,6 @@ const WorkerProfile = () => {
       setWageMin(profile.expectedWageMin || '');
       setWageMax(profile.expectedWageMax || '');
       setWageType(profile.wageType || 'DAILY');
-      setAvailability(profile.availability || 'AVAILABLE');
     }
     setEditing(false);
     setError('');
@@ -243,20 +239,6 @@ const WorkerProfile = () => {
                       onChange={(e) => setLocation(e.target.value)}
                       placeholder="New Delhi, India"
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="availability">Availability</Label>
-                    <select
-                      id="availability"
-                      value={availability}
-                      onChange={(e) => setAvailability(e.target.value)}
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm"
-                    >
-                      <option value="AVAILABLE">Available</option>
-                      <option value="BUSY">Busy</option>
-                      <option value="UNAVAILABLE">Unavailable</option>
-                    </select>
                   </div>
 
                   <div className="space-y-2">
