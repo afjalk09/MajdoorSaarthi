@@ -49,6 +49,13 @@ const EmployerDashboard = () => {
   const [showApps, setShowApps] = useState(false);
   const [loadingApplications, setLoadingApplications] = useState(false);
 
+  // Chosen role id per worker being offered a job (keyed by workerId)
+  const [hireRoles, setHireRoles] = useState({});
+
+  const setHireRole = (workerId, roleId) => {
+    setHireRoles(prev => ({ ...prev, [workerId]: roleId }));
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -179,14 +186,29 @@ const EmployerDashboard = () => {
     }
   };
 
-  const handleHire = async (jobId, workerId, jobRoleId) => {
+  const handleHire = async (job, workerId, suggestedId) => {
+    const roleId = effectiveRoleId(job, workerId, suggestedId);
     try {
-      await api.post(`/jobs/${jobId}/hire/${workerId}`, { jobRoleId });
-      setSuccess('Worker hired successfully!');
+      await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
+      setHireRoles(prev => ({ ...prev, [workerId]: undefined }));
+      setSuccess('Offer sent — awaiting worker acceptance');
       setShowMatches(false);
       fetchData();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to hire worker');
+    }
+  };
+
+  const handleAcceptApplication = async (job, workerId, suggestedId) => {
+    const roleId = effectiveRoleId(job, workerId, suggestedId);
+    try {
+      await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
+      setHireRoles(prev => ({ ...prev, [workerId]: undefined }));
+      setSuccess('Offer sent — awaiting worker acceptance');
+      setShowApps(false);
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to accept application');
     }
   };
 
@@ -201,17 +223,6 @@ const EmployerDashboard = () => {
       setError('Failed to load applications');
     } finally {
       setLoadingApplications(false);
-    }
-  };
-
-  const handleAcceptApplication = async (jobId, workerId) => {
-    try {
-      await api.post(`/jobs/${jobId}/hire/${workerId}`, {});
-      setSuccess('Application accepted — worker hired!');
-      setShowApps(false);
-      fetchData();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to accept application');
     }
   };
 
@@ -237,6 +248,44 @@ const EmployerDashboard = () => {
     }
   };
 
+  // Pick the role that will actually be offered: user's explicit choice if any,
+  // else the suggested role (AI-matched / applied) if still open, else the role
+  // with the most remaining capacity.
+  const effectiveRoleId = (job, workerId, suggestedId) => {
+    if (hireRoles[workerId]) return hireRoles[workerId];
+    const roles = (job?.jobRoles || []).filter(r => (r.remainingCapacity ?? (r.count - (r.filledCount || 0))) > 0);
+    if (suggestedId && roles.some(r => r.id === suggestedId)) return suggestedId;
+    if (roles.length === 0) return undefined;
+    return [...roles].sort((a, b) => {
+      const ra = a.remainingCapacity ?? (a.count - (a.filledCount || 0));
+      const rb = b.remainingCapacity ?? (b.count - (b.filledCount || 0));
+      return rb - ra;
+    })[0].id;
+  };
+
+  const renderRoleSelect = (job, workerId, suggestedId) => {
+    const roles = (job?.jobRoles || []).filter(r => (r.remainingCapacity ?? (r.count - (r.filledCount || 0))) > 0);
+    if (roles.length === 0) {
+      return (
+        <p className="text-xs text-red-500">No role has an available slot.</p>
+      );
+    }
+    const value = effectiveRoleId(job, workerId, suggestedId);
+    return (
+      <select
+        value={value}
+        onChange={(e) => setHireRole(workerId, e.target.value)}
+        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {roles.map(r => (
+          <option key={r.id} value={r.id}>
+            {r.roleName} ({r.filledCount || 0}/{r.count} filled)
+          </option>
+        ))}
+      </select>
+    );
+  };
+
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
@@ -248,6 +297,7 @@ const EmployerDashboard = () => {
           <h1 className="text-2xl font-bold text-green-600">Employer Dashboard</h1>
           <div className="flex items-center gap-4">
             <NotificationBell />
+            <Button variant="outline" onClick={() => navigate('/browse-workers')}>Browse Workers</Button>
             <Button variant="outline" onClick={() => navigate('/disputes')}>My Disputes</Button>
             <span className="text-sm text-muted-foreground">{user?.email}</span>
             <Button variant="outline" onClick={logout}>Logout</Button>
@@ -573,11 +623,9 @@ const EmployerDashboard = () => {
                             <Badge key={i} variant="outline" className="text-xs">{skill}</Badge>
                           ))}
                         </div>
-                        {match.suggestedRole && (
-                          <p className="text-xs text-blue-600 mb-2">
-                            Suggested role: {match.suggestedRole.roleName} ({match.suggestedRole.filledCount}/{match.suggestedRole.count} filled)
-                          </p>
-                        )}
+                        <div className="mb-2">
+                          {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                        </div>
                         <ul className="text-xs text-muted-foreground mb-3">
                           {match.match_reasons?.map((reason, i) => (
                             <li key={i}>• {reason}</li>
@@ -585,10 +633,9 @@ const EmployerDashboard = () => {
                         </ul>
                         <Button
                           size="sm"
-                          onClick={() => handleHire(selectedJob.id, match.worker_id, match.suggestedRole?.id)}
-                          disabled={!match.suggestedRole}
+                          onClick={() => handleHire(selectedJob, match.worker_id, match.suggestedRole?.id)}
                         >
-                          {match.suggestedRole ? 'Hire Worker' : 'No Available Role'}
+                          Send Offer
                         </Button>
                       </div>
                     ))}
@@ -645,11 +692,14 @@ const EmployerDashboard = () => {
                         <p className="text-xs text-muted-foreground mb-3">
                           Experience: {worker.experienceYears} years | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
                         </p>
+<div className="mb-3">
+                          {renderRoleSelect(browseJob, worker.id)}
+                        </div>
                         <Button
                           size="sm"
-                          onClick={() => handleHire(browseJob.id, worker.id)}
+                          onClick={() => handleHire(browseJob, worker.id)}
                         >
-                          Hire Worker
+                          Send Offer
                         </Button>
                       </div>
                     ))}
@@ -694,18 +744,38 @@ const EmployerDashboard = () => {
                             <p className="text-xs text-muted-foreground">
                               Applied: {new Date(app.appliedAt).toLocaleDateString()}
                             </p>
+                            {app.jobRole && (
+                              <p className="text-xs text-blue-600">
+                                Role: {app.jobRole.roleName}
+                              </p>
+                            )}
                           </div>
-                          <Badge variant={app.status === 'PENDING' ? 'secondary' : 'default'}>
-                            {app.status}
+                          <Badge variant={app.status === 'PENDING' ? 'secondary' : app.status === 'OFFERED' ? 'outline' : app.status === 'OFFER_WITHDRAWN' ? 'secondary' : 'default'}>
+                            {app.status === 'OFFERED' ? 'OFFER PENDING' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
                           </Badge>
                         </div>
                         {app.status === 'PENDING' && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleAcceptApplication(appsJob.id, app.workerId)}
-                          >
-                            Accept Application
-                          </Button>
+                          <div className="flex items-end gap-2 flex-wrap">
+                            <div className="flex-1 min-w-[180px]">
+                              {renderRoleSelect(appsJob, app.workerId, app.jobRoleId)}
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleAcceptApplication(appsJob, app.workerId, app.jobRoleId)}
+                            >
+                              Send Offer
+                            </Button>
+                          </div>
+                        )}
+                        {app.status === 'OFFERED' && (
+                          <p className="text-xs text-blue-600 pt-1">
+                            Offer sent{app.jobRole ? ` for ${app.jobRole.roleName}` : ''} — waiting for the worker to accept or reject.
+                          </p>
+                        )}
+                        {app.status === 'OFFER_WITHDRAWN' && (
+                          <p className="text-xs text-amber-600 pt-1">
+                            Offer withdrawn — another worker accepted this role.
+                          </p>
                         )}
                         {app.status === 'HIRED' && (
                           <Button

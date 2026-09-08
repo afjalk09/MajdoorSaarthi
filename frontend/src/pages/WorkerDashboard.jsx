@@ -19,6 +19,7 @@ const WorkerDashboard = () => {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [availability, setAvailability] = useState('AVAILABLE');
   const [activeTab, setActiveTab] = useState('jobs');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -65,13 +66,15 @@ const WorkerDashboard = () => {
 
   const fetchData = async () => {
     try {
-      const [jobsRes, appsRes] = await Promise.all([
+      const [jobsRes, appsRes, profileRes] = await Promise.all([
         api.get('/worker/jobs').catch(() => ({ data: { data: [] } })),
-        api.get('/worker/applications').catch(() => ({ data: { data: [] } }))
+        api.get('/worker/applications').catch(() => ({ data: { data: [] } })),
+        api.get('/worker/profile').catch(() => ({ data: { data: {} } }))
       ]);
 
       setJobs(jobsRes.data.data || []);
       setApplications(appsRes.data.data || []);
+      setAvailability(profileRes.data.data?.availability || 'AVAILABLE');
     } catch (err) {
       console.error('Error fetching data:', err);
     } finally {
@@ -115,6 +118,27 @@ const WorkerDashboard = () => {
       fetchData();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to cancel job');
+    }
+  };
+
+  const handleAcceptOffer = async (appId) => {
+    try {
+      await api.post(`/worker/applications/${appId}/accept`);
+      setSuccess('Offer accepted — you are now hired!');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to accept offer');
+    }
+  };
+
+  const handleRejectOffer = async (appId) => {
+    if (!window.confirm('Reject this job offer?')) return;
+    try {
+      await api.post(`/worker/applications/${appId}/reject`);
+      setSuccess('Offer rejected.');
+      fetchData();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject offer');
     }
   };
 
@@ -256,9 +280,10 @@ const WorkerDashboard = () => {
                       </div>
                       <Badge variant={
                         app.status === 'HIRED' ? 'default' :
-                        app.status === 'REJECTED' ? 'destructive' : 'secondary'
+                        app.status === 'OFFERED' ? 'outline' :
+                        app.status === 'REJECTED' || app.status === 'OFFER_WITHDRAWN' ? 'destructive' : 'secondary'
                       }>
-                        {app.status}
+                        {app.status === 'OFFERED' ? 'OFFER RECEIVED' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -271,7 +296,36 @@ const WorkerDashboard = () => {
                         <span>Match Score: {app.matchScore}%</span>
                       )}
                     </div>
-                    <div className="flex gap-2 mt-4">
+                    <div className="text-sm text-muted-foreground mt-2">
+                        Role: <span className="font-medium text-foreground">
+                          {app.jobRole?.roleName || 'Team member'}
+                        </span>
+                        {app.job && ` • ₹${app.job.wageAmount}/${app.job.wageType}`}
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        {app.status === 'OFFERED' && (
+                          <>
+                            {availability === 'AVAILABLE' ? (
+                              <>
+                                <Button size="sm" onClick={() => handleAcceptOffer(app.id)}>
+                                  Accept Offer
+                                </Button>
+                                <Button variant="destructive" size="sm" onClick={() => handleRejectOffer(app.id)}>
+                                  Reject
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button variant="destructive" size="sm" onClick={() => handleRejectOffer(app.id)}>
+                                  Reject
+                                </Button>
+                                <span className="text-xs text-amber-600 self-center">
+                                  You're assigned to another job — finish or cancel it before accepting more offers.
+                                </span>
+                              </>
+                            )}
+                          </>
+                        )}
                       {app.status === 'HIRED' && (app.job?.status === 'OPEN' || app.job?.status === 'IN_PROGRESS') && (
                         <>
                           <Button variant="outline" size="sm" onClick={() => navigate(`/jobs/${app.jobId}/track`)}>

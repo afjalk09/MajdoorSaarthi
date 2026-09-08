@@ -39,6 +39,8 @@ enum ApplicationStatus {
   HIRED
   COMPLETED
   WITHDRAWN
+  OFFERED
+  OFFER_WITHDRAWN
 }
 
 enum PaymentMethod {
@@ -211,6 +213,8 @@ model JobApplication {
   jobRole JobRole?        @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
 
   @@unique([jobId, workerId])
+
+  notifications Notification[]
 }
 
 model Payment {
@@ -246,17 +250,19 @@ model Rating {
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  type      String
-  title     String
-  message   String
-  jobId     String?
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  userId     String
+  type       String
+  title      String
+  message    String
+  jobId      String?
+  applicationId String?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  job  Job?  @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job         Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  application JobApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
 }
 
 model Milestone {

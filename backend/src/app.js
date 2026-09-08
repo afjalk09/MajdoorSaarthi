@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 const path = require('path');
 
 const app = express();
@@ -45,7 +46,10 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+const server = http.createServer(app);
+require('./lib/socket').init(server);
+
+server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 

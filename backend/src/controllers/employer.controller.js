@@ -88,7 +88,7 @@ exports.uploadDocument = async (req, res, next) => {
 
 exports.getWorkersByLocation = async (req, res, next) => {
   try {
-    const { job_id } = req.query;
+    const { job_id, search, skill, page = 1, limit = 20 } = req.query;
 
     let locationText = null;
     let jobSkills = [];
@@ -104,19 +104,34 @@ exports.getWorkersByLocation = async (req, res, next) => {
 
     const where = { availability: 'AVAILABLE' };
 
-    // Filter by location text (case-insensitive) if available
     if (locationText && locationText.trim()) {
       where.locationText = { equals: locationText.trim(), mode: 'insensitive' };
     }
 
-    const workers = await prisma.workerProfile.findMany({
-      where,
-      include: { user: { select: { email: true, phone: true } } },
-      orderBy: { reliabilityScore: 'desc' }
-    });
+    if (search && search.trim()) {
+      where.fullName = { contains: search.trim(), mode: 'insensitive' };
+    }
+
+    if (skill && skill.trim()) {
+      where.skills = { has: skill.trim() };
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [total, workers] = await Promise.all([
+      prisma.workerProfile.count({ where }),
+      prisma.workerProfile.findMany({
+        where,
+        include: { user: { select: { email: true, phone: true } } },
+        orderBy: { reliabilityScore: 'desc' },
+        skip,
+        take: limitNum
+      })
+    ]);
 
     const workersWithSkillMatch = workers.map(worker => {
-      // Calculate skill match percentage
       const workerSkills = worker.skills || [];
       const matchedSkills = workerSkills.filter(s => jobSkills.includes(s));
       const skillMatch = jobSkills.length > 0
@@ -128,10 +143,39 @@ exports.getWorkersByLocation = async (req, res, next) => {
         skillMatch,
         matchedSkills
       };
-    })
-    .sort((a, b) => b.skillMatch - a.skillMatch);
+    });
 
-    res.json({ success: true, data: workersWithSkillMatch });
+    if (jobSkills.length > 0) {
+      workersWithSkillMatch.sort((a, b) => b.skillMatch - a.skillMatch);
+    }
+
+    res.json({
+      success: true,
+      data: workersWithSkillMatch,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getSkills = async (req, res, next) => {
+  try {
+    const profiles = await prisma.workerProfile.findMany({
+      select: { skills: true }
+    });
+
+    const skillSet = new Set();
+    profiles.forEach(p => {
+      (p.skills || []).forEach(s => skillSet.add(s));
+    });
+
+    res.json({ success: true, data: Array.from(skillSet).sort() });
   } catch (error) {
     next(error);
   }

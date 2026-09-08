@@ -80,14 +80,25 @@ A single `Job` (project) can require multiple workers across different **roles**
 ### Job Fill Logic (CRITICAL — was a bug)
 - **Never compute "is job full" from a single role's stored `filledCount`.** The old bug: hiring a worker with no matching role (`jobRoleId = null`) never bumped any count, so fully-staffed jobs stayed `OPEN` forever.
 - Use the shared helper in `backend/src/controllers/job.controller.js`:
-  `recomputeJobFill(jobId)` — regroups `HIRED`/`COMPLETED` apps by `jobRoleId`, rewrites every role's `filledCount`, and sets job status: `IN_PROGRESS` when `hiredCount >= workersNeeded`, back to `OPEN` if understaffed while in progress. Never touches `COMPLETED`/`CANCELLED`.
-- Call `recomputeJobFill` after: `hireWorker`, `releaseWorkerFromJob`, `updateJob` (role edits). On job completion all `HIRED` apps become `COMPLETED` + `workStatus: 'COMPLETED'` and workers return to `AVAILABLE`.
-- `releaseWorkerFromJob({ jobId, workerId, appStatus })` — shared helper that frees a worker (sets `AVAILABLE`), sets app status (`WITHDRAWN` for worker-cancel, `REJECTED` for employer-remove) and runs `recomputeJobFill`.
+  `recomputeJobFill(jobId)` — regroups `HIRED`/`COMPLETED` apps by `jobRoleId`, rewrites every role's `filledCount`, and sets job status: `IN_PROGRESS` when `hiredCount >= workersNeeded`, back to `OPEN` if understaffed while in progress. Never touches `COMPLETED`/`CANCELLED`. `OFFERED` apps are intentionally ignored (offers don't fill a slot; a job stays `OPEN` until a hire is *accepted*).
+- Call `recomputeJobFill` after: **`acceptOffer`** (offer accepted), `releaseWorkerFromJob`, `updateJob` (role edits). On job completion all `HIRED` apps become `COMPLETED` + `workStatus: 'COMPLETED'` and workers return to `AVAILABLE`.
+- `releaseWorkerFromJob({ jobId, workerId, appStatus })` — shared helper that frees a worker (sets `AVAILABLE`), sets app status (`WITHDRAWN` for worker-cancel, `REJECTED` for employer-remove) and runs `recomputeJobFill`. Only acts on `HIRED` apps.
+- **Never hire role-less** (`jobRoleId = null`): `hireWorker` auto-assigns skill match, then falls back to the role with the most remaining capacity; if no role has space it returns `400 "No available slots in this job"`. This is what keeps role `filledCount`/requirements accurate.
 
-### Role-aware Apply
-- `POST /api/worker/jobs/:id/apply` accepts optional `{ jobRoleId }`. Worker picks the role they're applying for. Validated: role belongs to job, has remaining capacity (from real hired count). No role → auto-pick best skill-matching role with space (else null).
+### Role-aware Apply (skill-gated + re-apply allowed)
+- `POST /api/worker/jobs/:id/apply` accepts optional `{ jobRoleId }`. Worker picks the role they're applying for. Validated: role belongs to job, has remaining capacity.
+- **Skill gate (enforced at apply time)**: explicit-role path requires ≥1 shared skill between `profile.skills` and the role's `skills[]` (or role `skills[]` is empty) → else `400 "You don't have the skills required for this role"`. No-role path auto-picks the best skill-matching role with space; if none matches → `400 "You don't have the required skills for this job"`. An empty-skill allowance applies.
+- **Re-apply**: a previous application with status `REJECTED` or `WITHDRAWN` can be re-submitted — the existing row is reused (status → `PENDING`, `jobRoleId` refreshed, `appliedAt`/`matchScore`/`matchReasons` reset) instead of returning "Already applied". Any other status → `400 "Already applied"` (`@@unique([jobId, workerId])`).
 - `hireWorker` honors the applied `jobRoleId` passed in body OR the one already on the application.
-- Worker availability: hiring a worker sets them `BUSY` (can't apply/hired elsewhere) until freed.
+- Worker availability becomes `BUSY` **only when an offer is accepted** (see Offer Flow below), not when offered.
+
+### Offer Flow (hire = send offer; worker must accept) — grow this section
+- **`hireWorker` (`POST /api/jobs/:id/hire/:workerId`) is "send offer", not hire.** It resolves the role (explicit → applied → skill auto-assign → most-remaining-capacity fallback), sets the application to **`OFFERED`**, leaves the worker **`AVAILABLE`**, does NOT recompute fill, and sends a `JOB_OFFER` notification that names the role + wage and carries `applicationId`.
+- **Offers do NOT reserve a slot.** Capacity (`remainingCapacity`, drop-down options, `getMatches` suggestions) = `count - (HIRED + COMPLETED)` only. An employer can send offers to many workers; the **first acceptance wins**.
+- **`POST /api/worker/applications/:id/accept`** (`acceptOffer`): worker accepts → re-validates still `AVAILABLE`, job active, and role still has a real free slot (`HIRED + COMPLETED < count`), then sets app `HIRED`, worker → `BUSY`, runs `recomputeJobFill` (may flip job `IN_PROGRESS`), notifies employer `OFFER_ACCEPTED`. **Auto-withdraw is capacity-aware**: other pending `OFFERED` apps for the same job+role are withdrawn (`OFFER_WITHDRAWN` + notification) ONLY when this acceptance makes the role FULL (`HIRED+COMPLETED >= count`); while seats remain the other offers stay open so the employer keeps filling. **A worker cannot accept a second offer while `BUSY`** (backend returns `400 "already assigned"`; the frontend hides the Accept button for OFFERED apps/notifications until the worker is free again).
+- **`POST /api/worker/applications/:id/reject`** (`rejectOffer`): worker declines → app `REJECTED`, worker stays `AVAILABLE`, notifies employer `OFFER_DECLINED`. (Declined workers can re-apply later via the re-apply rule.)
+- Frontend: `NotificationBell` + `Notifications.jsx` render inline **Accept/Reject** buttons for `JOB_OFFER` notifications with `application.status === 'OFFERED'`; `WorkerDashboard` applications tab shows OFFERED cards (role name + wage + Accept/Reject); `EmployerDashboard` hire actions say "Send Offer"/"OFFER PENDING".
+- **Employer picks the role** (no silent auto-assign): Browse Workers, AI Matches, and Job Applications modals in `EmployerDashboard.jsx` render a role `<select>` per worker (open roles only), pre-selected to the AI-suggested role (matches) or applied role (applications), else most-remaining-capacity. `handleHire(job, workerId, suggestedId)` sends the chosen `jobRoleId`. **Role capacity is computed from REAL apps**: `getEmployerJobs`/`getJobById` attach `offeredCount` + `remainingCapacity = count - (HIRED+COMPLETED+OFFERED)` per role; `hireWorker` & `getMatches` use real remaining (not stored `filledCount`) so they never pick a role that's actually reserved full.
 
 ### Per-Worker Work Status (NOT milestones)
 - MongoDB-like per-application fields on `JobApplication`: `workStatus` (NOT_STARTED | IN_PROGRESS | COMPLETED) and `workNote String?`.
@@ -100,8 +111,9 @@ A single `Job` (project) can require multiple workers across different **roles**
 
 ### Prisma Schema Notes
 - `JobApplication` fields: `id, jobId, workerId, jobRoleId?, status, matchScore?, matchReasons?, workStatus (default "NOT_STARTED"), workNote?, appliedAt` with `@@unique([jobId, workerId])`.
-- `ApplicationStatus` enum includes: PENDING, ACCEPTED, REJECTED, HIRED, COMPLETED, WITHDRAWN.
-- Migration: `20260905183019_add_work_status` (added workStatus/workNote).
+- `ApplicationStatus` enum includes: PENDING, ACCEPTED, REJECTED, HIRED, COMPLETED, WITHDRAWN, OFFERED, OFFER_WITHDRAWN.
+- `Notification` has optional `applicationId` + relation `application` (links a `JOB_OFFER` to the `JobApplication`; `onDelete: SetNull`). `createNotification(userId, type, title, message, jobId = null, applicationId = null)`.
+- Migrations: `20260905183019_add_work_status` (workStatus/workNote), `20260907064934_add_application_offered` (OFFERED status + Notification.applicationId), `20260907083950_add_offer_withdrawn` (OFFER_WITHDRAWN status).
 
 ## AI Matching Algorithm
 
@@ -135,9 +147,11 @@ Each match includes:
 - `PUT /api/worker/profile` — Update profile
 - `POST /api/worker/documents` — Upload verification docs
 - `GET /api/worker/jobs` — Available jobs
-- `POST /api/worker/jobs/:id/apply` — Apply to job (optional `{ jobRoleId }`)
+- `POST /api/worker/jobs/:id/apply` — Apply to job (optional `{ jobRoleId }`; skill-gated; re-apply allowed after REJECTED/WITHDRAWN)
 - `PUT /api/worker/jobs/:id/cancel` — Worker cancels hired job (status → WITHDRAWN, freezes slot)
 - `PUT /api/worker/applications/:id/work-status` — Worker updates own workStatus/workNote
+- `POST /api/worker/applications/:id/accept` — Accept job offer (OFFERED → HIRED, worker → BUSY)
+- `POST /api/worker/applications/:id/reject` — Decline job offer (OFFERED → REJECTED, worker stays AVAILABLE)
 - `GET /api/worker/applications` — My applications
 
 ### Employer
@@ -147,11 +161,11 @@ Each match includes:
 - `GET /api/employer/workers?job_id=` — Browse workers by location
 
 ### Jobs
-- `POST /api/jobs` — Create job
+- `POST /api/jobs` — Create job (sends `JOB_POSTED` notifications to **available workers whose skills overlap** the job's requiredSkills; no skill filter if job has no skills; not location-gated)
 - `GET /api/jobs` — My jobs
 - `GET /api/jobs/:id` — Get job details
 - `GET /api/jobs/:id/matches` — AI matched workers
-- `POST /api/jobs/:id/hire/:workerId` — Hire worker
+- `POST /api/jobs/:id/hire/:workerId` — Send job offer to worker (app → OFFERED; worker accepts via `/accept`)
 - `PUT /api/jobs/:id/status` — Update status
 - `PUT /api/jobs/:id/complete` — Mark job as completed (both parties)
 - `POST /api/jobs/:id/remove/:workerId` — Employer removes hired worker (status → REJECTED)
@@ -162,6 +176,13 @@ Each match includes:
 - `GET /api/notifications/unread-count` — Get unread count
 - `PUT /api/notifications/:id/read` — Mark as read
 - `PUT /api/notifications/read-all` — Mark all as read
+
+## Real-Time Notifications (Socket.IO)
+- **All notifications are delivered instantly** — the 30s bell poll is just a fallback/reconnect safety net.
+- Backend: `socket.io` attached to the HTTP server in `backend/src/app.js` (`http.createServer(app)` → `require('./lib/socket').init(server)` → `server.listen`). `backend/src/lib/socket.js` verifies the JWT from `socket.handshake.auth.token`, joins room `user:<userId>`, exposes `emitToUser(userId, event, payload)`.
+- Every new notification is pushed to the user's socket room from `createNotification()` in `notification.controller.js` (emits `notification:new` with a payload shaped like `GET /notifications` — includes `job` and `application.jobRole`).
+- Frontend: `frontend/src/services/socket.js` is a singleton `io(VITE_SOCKET_URL || 'http://localhost:5000', { auth: { token } }, transports websocket+polling)`. `NotificationBell.jsx` and `Notifications.jsx` subscribe to `notification:new` and refetch via REST on arrival.
+- Env: frontend `VITE_SOCKET_URL` → backend origin (dev default `http://localhost:5000`, Render URL in prod). Socket.IO CORS reuses backend `FRONTEND_URL`. Render supports WebSockets.
 
 ### Milestones
 - `GET /api/milestones/job/:jobId` — Get milestones for job
@@ -212,6 +233,9 @@ npx prisma migrate reset
 
 # Validate schema
 npx prisma validate
+
+# Backfill legacy role-less HIRED/COMPLETED apps with jobRoleId (fixes stuck 0/x role counts)
+npm run prisma:backfill  # -> node prisma/backfillRoleAssignments.js
 ```
 
 ## Common Patterns
@@ -293,6 +317,16 @@ const result = await prisma.payment.aggregate({
 ### 6. Prisma engine lock on migrate while backend runs
 - **Symptom**: `prisma migrate dev`/`generate` hangs or fails "already in use".
 - **Fix**: Kill running backend node processes (incl. nodemon) BEFORE Prisma CLI, then restart backend after. Commands on Windows: `powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"`.
+
+### 7. Role-filledCount stuck at 0/x when hiring (CRITICAL, now fixed)
+- **Symptom**: "Requirements of labour not updating" — after hiring a worker from **Browse Workers**, the role badge still shows e.g. `Mason: 0/2` even though the worker is hired and the job flipped `IN_PROGRESS`.
+- **Cause**: The browse-workers hire passed **no role** (`jobRoleId = null` on the app), so `recomputeJobFill` counted the worker in `hiredCount` but could attribute them to **no role** — every role's `filledCount` stayed 0.
+- **Fix**: `hireWorker` can never create a role-less app: skill auto-assign → falls back to the role with the **most remaining capacity** → else `400 "No available slots in this job"`. Legacy rows fixed via `npm run prisma:backfill` (`backend/prisma/backfillRoleAssignments.js`).
+
+### 8. "Already applied" blocked re-applying after rejection (fixed) + skill-gated apply
+- **Symptom**: Worker who was rejected (or withdrew) from a job got `400 "Already applied"` forever.
+- **Cause**: `applyToJob` returned "Already applied" for ANY existing row (`@@unique([jobId, workerId])` prevents a second row).
+- **Fix**: Re-apply allowed when previous status is `REJECTED` or `WITHDRAWN` — reuses the row (status → `PENDING`, role refreshed). Other statuses still blocked. Apply is now **skill-gated**: worker needs ≥1 shared skill with the chosen/auto-picked role (`skills[]` empty ⇒ allowed).
 
 ## Express.js Best Practices
 
@@ -402,7 +436,9 @@ cd backend && npx prisma studio
 ## Frontend Components & Pages
 
 ### New Components (Notifications/Tracking/Disputes/Reviews)
-- `NotificationBell.jsx` — Bell icon with unread count dropdown (auto-refreshes every 30s)
+- `NotificationBell.jsx` — Bell icon with unread count dropdown (updates instantly via socket; 30s poll is fallback). Shows relative time per item.
+- `Notifications.jsx` — Full notification list; each card shows relative + absolute timestamp (e.g. `3m ago • Sep 8, 2026, 4:12 PM`).
+- Time formatting shared helper: `frontend/src/lib/format.js` — `timeAgo(date)` (relative) and `formatDateTime(date)` (localized `{ dateStyle:'medium', timeStyle:'short' }`). Use these for any notification/activity timestamps.
 - `MilestoneCard.jsx` — Add/update/delete milestones for job tracking
 - `DisputeForm.jsx` — Dialog to raise disputes with reason selector
 - `ReviewModal.jsx` — Star rating + comment form for post-job reviews

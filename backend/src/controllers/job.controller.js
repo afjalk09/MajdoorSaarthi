@@ -127,27 +127,23 @@ exports.createJob = async (req, res, next) => {
       include: { jobRoles: true }
     });
 
-    // Notify workers whose location matches the job location
-    if (job.locationText) {
-      const jobLocation = job.locationText.trim().toLowerCase();
-      const locationWorkers = await prisma.workerProfile.findMany({
-        where: {
-          locationText: { not: null },
-          availability: { not: 'BUSY' }
-        },
-        select: { userId: true, locationText: true }
-      });
+    // Notify available workers whose skills match the job (skill-gated, not location-only)
+    const locationWorkers = await prisma.workerProfile.findMany({
+      where: {
+        availability: { not: 'BUSY' },
+        ...(requiredSkills.length > 0 ? { skills: { hasSome: requiredSkills } } : {})
+      },
+      select: { userId: true }
+    });
 
-      const matchingWorkers = locationWorkers.filter(
-        worker => (worker.locationText || '').trim().toLowerCase() === jobLocation
-      );
-
-      await Promise.all(matchingWorkers.map(worker =>
+    if (locationWorkers.length > 0) {
+      const skillsLabel = requiredSkills.length > 0 ? ` Looking for: ${requiredSkills.join(', ')}.` : '';
+      await Promise.all(locationWorkers.map(worker =>
         createNotification(
           worker.userId,
           'JOB_POSTED',
-          'New Job Near You',
-          `New job "${job.title}" has been posted in your area (${job.locationText}). Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
+          'New Job For You',
+          `New job "${job.title}" has been posted${job.locationText ? ` in ${job.locationText}` : ''}.${skillsLabel} Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
           job.id
         )
       ));
@@ -168,11 +164,35 @@ exports.getEmployerJobs = async (req, res, next) => {
 
     const jobs = await prisma.job.findMany({
       where: { employerId: employer.id },
-      include: { jobRoles: true },
+      include: {
+        jobRoles: {
+          include: {
+            applications: {
+              where: { status: { in: ['HIRED', 'COMPLETED', 'OFFERED'] } },
+              select: { status: true }
+            }
+          }
+        }
+      },
       orderBy: { createdAt: 'desc' }
     });
 
-    res.json({ success: true, data: jobs });
+    // Derive real per-role capacity: only HIRED/COMPLETED fill a seat; pending offers don't.
+    const jobsWithRoleCounts = jobs.map(job => ({
+      ...job,
+      jobRoles: job.jobRoles.map(role => {
+        const offeredCount = role.applications.filter(a => a.status === 'OFFERED').length;
+        const hiredCount = role.applications.length - offeredCount;
+        return {
+          ...role,
+          applications: undefined,
+          offeredCount,
+          remainingCapacity: role.count - hiredCount
+        };
+      })
+    }));
+
+    res.json({ success: true, data: jobsWithRoleCounts });
   } catch (error) {
     next(error);
   }
@@ -184,7 +204,14 @@ exports.getJobById = async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         employer: true,
-        jobRoles: true,
+        jobRoles: {
+          include: {
+            applications: {
+              where: { status: { in: ['HIRED', 'COMPLETED', 'OFFERED'] } },
+              select: { status: true }
+            }
+          }
+        },
         reviews: true,
         applications: {
           where: { status: { in: ['HIRED', 'COMPLETED'] } },
@@ -212,10 +239,17 @@ exports.getJobById = async (req, res, next) => {
       }
     });
 
-    const jobRoles = job.jobRoles.map(role => ({
-      ...role,
-      filledCount: roleHiredCount[role.id] || 0
-    }));
+    const jobRoles = job.jobRoles.map(role => {
+      const offeredCount = (role.applications || []).filter(a => a.status === 'OFFERED').length;
+      const hiredCount = ((role.applications || []).length) - offeredCount;
+      return {
+        ...role,
+        applications: undefined,
+        filledCount: roleHiredCount[role.id] || 0,
+        offeredCount,
+        remainingCapacity: role.count - hiredCount
+      };
+    });
 
     // Unique hired workers with user id + name (used for ratings/feedback)
     const hiredWorkers = [...new Map(
@@ -270,7 +304,7 @@ exports.getJobApplications = async (req, res, next) => {
 
     const applications = await prisma.jobApplication.findMany({
       where: { jobId: id },
-      include: { worker: true },
+      include: { worker: true, jobRole: true },
       orderBy: { appliedAt: 'desc' }
     });
 
@@ -455,11 +489,30 @@ exports.getMatches = async (req, res, next) => {
   try {
     const job = await prisma.job.findUnique({
       where: { id: req.params.id },
-      include: { jobRoles: true }
+      include: {
+        jobRoles: {
+          include: {
+            applications: {
+              where: { status: { in: ['HIRED', 'COMPLETED', 'OFFERED'] } },
+              select: { status: true }
+            }
+          }
+        }
+      }
     });
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
+
+    // Open capacity per role (pending offers don't reserve a slot)
+    const remainingById = {};
+    job.jobRoles.forEach(role => {
+      const offeredCount = role.applications.filter(a => a.status === 'OFFERED').length;
+      const hiredCount = role.applications.length - offeredCount;
+      remainingById[role.id] = role.count - hiredCount;
+      role.remainingCapacity = role.count - hiredCount;
+      role.applications = undefined;
+    });
 
     const matches = await matchingService.findMatches(job);
 
@@ -469,7 +522,7 @@ exports.getMatches = async (req, res, next) => {
       let bestScore = 0;
 
       for (const role of job.jobRoles) {
-        if (role.filledCount >= role.count) continue; // Role already full
+        if (remainingById[role.id] <= 0) continue; // Role has no real space left
 
         const workerSkills = match.skills || [];
         const roleSkills = role.skills || [];
@@ -488,8 +541,16 @@ exports.getMatches = async (req, res, next) => {
           id: bestRole.id,
           roleName: bestRole.roleName,
           filledCount: bestRole.filledCount,
-          count: bestRole.count
-        } : null
+          count: bestRole.count,
+          remainingCapacity: bestRole.remainingCapacity
+        } : null,
+        jobRoles: job.jobRoles.map(role => ({
+          id: role.id,
+          roleName: role.roleName,
+          filledCount: role.filledCount,
+          count: role.count,
+          remainingCapacity: role.remainingCapacity
+        }))
       };
     });
 
@@ -506,7 +567,16 @@ exports.hireWorker = async (req, res, next) => {
 
     const job = await prisma.job.findUnique({
       where: { id: jobId },
-      include: { jobRoles: true }
+      include: {
+        jobRoles: {
+          include: {
+            applications: {
+              where: { status: { in: ['HIRED', 'COMPLETED'] } },
+              select: { status: true }
+            }
+          }
+        }
+      }
     });
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
@@ -531,13 +601,20 @@ exports.hireWorker = async (req, res, next) => {
 
     let assignedRoleId = jobRoleId || existingApplication?.jobRoleId || null;
 
+    // Open capacity per role = count - (HIRED + COMPLETED). Pending OFFERED apps do NOT
+    // reserve a slot, so an employer can keep offering until some worker accepts.
+    const remainingById = {};
+    for (const role of job.jobRoles) {
+      remainingById[role.id] = role.count - role.applications.length;
+    }
+
     if (!assignedRoleId) {
-      // Auto-assign based on worker skills matching role skills
+      // Auto-assign based on worker skills matching role skills (only roles with real space)
       let bestRole = null;
       let bestScore = 0;
 
       for (const role of job.jobRoles) {
-        if (role.filledCount >= role.count) continue;
+        if (remainingById[role.id] <= 0) continue;
 
         const workerSkills = worker.skills || [];
         const roleSkills = role.skills || [];
@@ -555,18 +632,35 @@ exports.hireWorker = async (req, res, next) => {
       }
     }
 
-    // Validate the role exists and has space
-    if (assignedRoleId) {
-      const role = await prisma.jobRole.findUnique({
-        where: { id: assignedRoleId },
-        include: { applications: { where: { status: { in: ['HIRED', 'COMPLETED'] } } } }
-      });
-      if (!role || role.jobId !== jobId) {
-        return res.status(400).json({ success: false, message: 'Invalid role' });
+    if (!assignedRoleId) {
+      // Fall back to the role with the most remaining capacity so a hire is never role-less
+      let bestRole = null;
+      let bestRemaining = 0;
+
+      for (const role of job.jobRoles) {
+        const remaining = remainingById[role.id];
+        if (remaining >= 0 && remaining > bestRemaining) {
+          bestRemaining = remaining;
+          bestRole = role;
+        }
       }
-      if (role.applications.length >= role.count) {
-        return res.status(400).json({ success: false, message: 'Role already fully filled' });
+
+      if (bestRole) {
+        assignedRoleId = bestRole.id;
       }
+    }
+
+    // Every hire must map to a role; reject if the job has no open slots
+    if (!assignedRoleId) {
+      return res.status(400).json({ success: false, message: 'No available slots in this job' });
+    }
+
+    // Validate the role belongs to the job and still has space (offers reserve slots too)
+    if (remainingById[assignedRoleId] === undefined || remainingById[assignedRoleId] < 0) {
+      return res.status(400).json({ success: false, message: 'Invalid role' });
+    }
+    if (remainingById[assignedRoleId] <= 0) {
+      return res.status(400).json({ success: false, message: 'Role already fully filled' });
     }
 
     let application;
@@ -574,7 +668,7 @@ exports.hireWorker = async (req, res, next) => {
       application = await prisma.jobApplication.update({
         where: { id: existingApplication.id },
         data: {
-          status: 'HIRED',
+          status: 'OFFERED',
           jobRoleId: assignedRoleId
         }
       });
@@ -583,22 +677,14 @@ exports.hireWorker = async (req, res, next) => {
         data: {
           jobId,
           workerId,
-          status: 'HIRED',
+          status: 'OFFERED',
           jobRoleId: assignedRoleId
         }
       });
     }
 
-    // Mark the worker as busy so they are not matched to other jobs
-    await prisma.workerProfile.update({
-      where: { id: workerId },
-      data: { availability: 'BUSY' }
-    });
-
-    // Recompute role fill counts and flip the project to IN_PROGRESS when fully staffed
-    await recomputeJobFill(jobId);
-
-    // Create notification for the hired worker
+    // Notify the worker with the offered role and request accept/reject.
+    // Worker stays AVAILABLE until they accept; slot is not filled by an offer.
     const workerUser = await prisma.workerProfile.findUnique({
       where: { id: workerId },
       select: { userId: true }
@@ -612,10 +698,11 @@ exports.hireWorker = async (req, res, next) => {
 
       await createNotification(
         workerUser.userId,
-        'HIRED',
-        'You have been hired!',
-        `You have been hired for "${job.title}" as ${roleName}. Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
-        jobId
+        'JOB_OFFER',
+        'New Job Offer',
+        `You have been offered ${roleName} for "${job.title}". Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}. Accept or reject the offer.`,
+        jobId,
+        application.id
       );
     }
 

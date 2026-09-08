@@ -12,6 +12,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import Notifications from './pages/Notifications';
 import JobTracking from './pages/JobTracking';
 import Disputes from './pages/Disputes';
+import BrowseWorkers from './pages/BrowseWorkers';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
@@ -82,6 +83,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={['EMPLOYER']}>
             <EditJob />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/browse-workers"
+        element={
+          <ProtectedRoute allowedRoles={['EMPLOYER']}>
+            <BrowseWorkers />
           </ProtectedRoute>
         }
       />

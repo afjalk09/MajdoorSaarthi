@@ -1,10 +1,14 @@
 const prisma = require('../lib/prisma');
+const { emitToUser } = require('../lib/socket');
 
 exports.getNotifications = async (req, res, next) => {
   try {
     const notifications = await prisma.notification.findMany({
       where: { userId: req.user.id },
-      include: { job: { select: { id: true, title: true } } },
+      include: {
+        job: { select: { id: true, title: true } },
+        application: { include: { jobRole: true } }
+      },
       orderBy: { createdAt: 'desc' },
       take: 50
     });
@@ -65,11 +69,25 @@ exports.markAllAsRead = async (req, res, next) => {
   }
 };
 
-exports.createNotification = async (userId, type, title, message, jobId = null) => {
+exports.createNotification = async (userId, type, title, message, jobId = null, applicationId = null) => {
   try {
-    return await prisma.notification.create({
-      data: { userId, type, title, message, jobId }
+    const notification = await prisma.notification.create({
+      data: { userId, type, title, message, jobId, applicationId }
     });
+
+    const payload = await prisma.notification.findUnique({
+      where: { id: notification.id },
+      include: {
+        job: { select: { id: true, title: true } },
+        application: { include: { jobRole: true } }
+      }
+    });
+
+    if (payload) {
+      emitToUser(userId, 'notification:new', payload);
+    }
+
+    return notification;
   } catch (error) {
     console.error('Failed to create notification:', error);
   }

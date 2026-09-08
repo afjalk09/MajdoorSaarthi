@@ -7,15 +7,32 @@ import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, CheckCheck } from 'lucide-react';
 import api from '@/services/api';
+import socket from '@/services/socket';
+import { timeAgo, formatDateTime } from '@/lib/format';
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([]);
+  const [workerAvailable, setWorkerAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const fetchWorkerAvailability = async () => {
+    if (user?.role !== 'WORKER') return;
+    try {
+      const res = await api.get('/worker/profile');
+      setWorkerAvailable(res.data.data?.availability === 'AVAILABLE');
+    } catch (err) {
+      console.error('Failed to fetch worker availability');
+    }
+  };
+
   useEffect(() => {
     fetchNotifications();
+    fetchWorkerAvailability();
+    const onNewNotification = () => fetchNotifications();
+    socket.on('notification:new', onNewNotification);
+    return () => socket.off('notification:new', onNewNotification);
   }, []);
 
   const fetchNotifications = async () => {
@@ -49,9 +66,22 @@ export default function Notifications() {
     }
   };
 
+  const handleOfferAction = async (notification, action) => {
+    try {
+      const appId = notification.application?.id;
+      if (!appId) return;
+      await api.post(`/worker/applications/${appId}/${action}`);
+      fetchNotifications();
+      fetchWorkerAvailability();
+    } catch (err) {
+      console.error(`Failed to ${action} offer:`, err);
+    }
+  };
+
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'HIRED': return '🎉';
+      case 'JOB_OFFER': return '📨';
       case 'JOB_COMPLETED': return '✅';
       case 'DISPUTE_RAISED': return '⚠️';
       case 'DISPUTE_RESOLVED': return '🔧';
@@ -117,8 +147,29 @@ export default function Notifications() {
                       {notification.job && (
                         <p className="text-xs text-primary mt-1">Job: {notification.job.title}</p>
                       )}
+                      {notification.type === 'JOB_OFFER' && notification.application?.status === 'OFFERED' && (
+                        <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                          {workerAvailable && (
+                            <Button
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => handleOfferAction(notification, 'accept')}
+                            >
+                              Accept Offer
+                            </Button>
+                          )}
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleOfferAction(notification, 'reject')}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
                       <p className="text-xs text-muted-foreground mt-2">
-                        {new Date(notification.createdAt).toLocaleString()}
+                        {timeAgo(notification.createdAt)} • {formatDateTime(notification.createdAt)}
                       </p>
                     </div>
                   </div>

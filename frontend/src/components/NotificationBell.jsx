@@ -6,20 +6,45 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import api from '@/services/api';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import socket from '@/services/socket';
+import { timeAgo } from '@/lib/format';
 
 export default function NotificationBell() {
+  const { user } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifications, setNotifications] = useState([]);
+  const [workerAvailable, setWorkerAvailable] = useState(true);
   const navigate = useNavigate();
+
+  const fetchWorkerAvailability = async () => {
+    if (user?.role !== 'WORKER') return;
+    try {
+      const res = await api.get('/worker/profile');
+      setWorkerAvailable(res.data.data?.availability === 'AVAILABLE');
+    } catch (err) {
+      console.error('Failed to fetch worker availability');
+    }
+  };
 
   useEffect(() => {
     fetchUnreadCount();
     fetchRecentNotifications();
+    fetchWorkerAvailability();
     const interval = setInterval(() => {
       fetchUnreadCount();
       fetchRecentNotifications();
+      fetchWorkerAvailability();
     }, 30000);
-    return () => clearInterval(interval);
+    const onNewNotification = () => {
+      fetchUnreadCount();
+      fetchRecentNotifications();
+    };
+    socket.on('notification:new', onNewNotification);
+    return () => {
+      clearInterval(interval);
+      socket.off('notification:new', onNewNotification);
+    };
   }, []);
 
   const fetchUnreadCount = async () => {
@@ -59,6 +84,19 @@ export default function NotificationBell() {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (err) {
       console.error('Failed to mark all as read');
+    }
+  };
+
+  const handleOfferAction = async (notification, action) => {
+    try {
+      const appId = notification.application?.id;
+      if (!appId) return;
+      await api.post(`/worker/applications/${appId}/${action}`);
+      fetchUnreadCount();
+      fetchRecentNotifications();
+      fetchWorkerAvailability();
+    } catch (err) {
+      console.error(`Failed to ${action} offer:`, err);
     }
   };
 
@@ -109,6 +147,28 @@ export default function NotificationBell() {
                 <p className="text-xs text-muted-foreground line-clamp-2">{notification.message}</p>
                 {notification.job && (
                   <span className="text-xs text-primary">{notification.job.title}</span>
+                )}
+                <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
+                {notification.type === 'JOB_OFFER' && notification.application?.status === 'OFFERED' && (
+                  <div className="flex gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
+                    {workerAvailable && (
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs flex-1"
+                        onClick={() => handleOfferAction(notification, 'accept')}
+                      >
+                        Accept
+                      </Button>
+                    )}
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => handleOfferAction(notification, 'reject')}
+                    >
+                      Reject
+                    </Button>
+                  </div>
                 )}
               </div>
             </DropdownMenuItem>
