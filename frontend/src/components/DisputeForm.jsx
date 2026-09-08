@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle } from 'lucide-react';
 import api from '@/services/api';
+import { showSuccess, showError } from '@/lib/toast';
 
 export default function DisputeForm({ jobId, onDisputeRaised }) {
   const [open, setOpen] = useState(false);
@@ -23,7 +24,7 @@ export default function DisputeForm({ jobId, onDisputeRaised }) {
 
   const handleSubmit = async () => {
     if (!reason || !description) {
-      alert('Please fill in all fields');
+      showError('Please fill in all fields');
       return;
     }
 
@@ -38,9 +39,9 @@ export default function DisputeForm({ jobId, onDisputeRaised }) {
       setReason('');
       setDescription('');
       if (onDisputeRaised) onDisputeRaised();
-      alert('Dispute raised successfully');
+      showSuccess('Dispute raised successfully');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to raise dispute');
+      showError(err.response?.data?.message || 'Failed to raise dispute');
     } finally {
       setLoading(false);
     }

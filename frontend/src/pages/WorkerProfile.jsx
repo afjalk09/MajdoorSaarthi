@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { showSuccess, showError } from '@/lib/toast';
 
 const WorkerProfile = () => {
   const { user, logout } = useAuth();
@@ -15,8 +15,6 @@ const WorkerProfile = () => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   const [fullName, setFullName] = useState('');
   const [skills, setSkills] = useState('');
@@ -46,7 +44,7 @@ const WorkerProfile = () => {
       if (err.response?.status === 404) {
         setEditing(true);
       } else {
-        setError(err.response?.data?.message || 'Failed to load profile');
+        showError(err.response?.data?.message || 'Failed to load profile');
       }
     } finally {
       setLoading(false);
@@ -55,8 +53,6 @@ const WorkerProfile = () => {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
 
     try {
       const res = await api.put('/worker/profile', {
@@ -70,9 +66,9 @@ const WorkerProfile = () => {
       });
       setProfile(res.data.data);
       setEditing(false);
-      setSuccess('Profile updated successfully');
+      showSuccess('Profile updated successfully');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update profile');
+      showError(err.response?.data?.message || 'Failed to update profile');
     }
   };
 
@@ -87,7 +83,6 @@ const WorkerProfile = () => {
       setWageType(profile.wageType || 'DAILY');
     }
     setEditing(false);
-    setError('');
   };
 
   const availabilityColors = {
@@ -118,18 +113,6 @@ const WorkerProfile = () => {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         {!editing ? (
           <Card>
             <CardHeader>

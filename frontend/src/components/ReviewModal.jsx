@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Star } from 'lucide-react';
 import api from '@/services/api';
+import { showSuccess, showError } from '@/lib/toast';
 
 export default function ReviewModal({ jobId, revieweeId, revieweeName, onReviewSubmitted }) {
   const [open, setOpen] = useState(false);
@@ -15,7 +16,7 @@ export default function ReviewModal({ jobId, revieweeId, revieweeName, onReviewS
 
   const handleSubmit = async () => {
     if (rating === 0) {
-      alert('Please select a rating');
+      showError('Please select a rating');
       return;
     }
 
@@ -31,9 +32,9 @@ export default function ReviewModal({ jobId, revieweeId, revieweeName, onReviewS
       setRating(0);
       setComment('');
       if (onReviewSubmitted) onReviewSubmitted();
-      alert('Review submitted successfully');
+      showSuccess('Review submitted successfully');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to submit review');
+      showError(err.response?.data?.message || 'Failed to submit review');
     } finally {
       setLoading(false);
     }

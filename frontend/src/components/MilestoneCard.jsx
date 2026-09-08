@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import api from '@/services/api';
+import { showSuccess, showError } from '@/lib/toast';
 import { Plus, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 
 export default function MilestoneCard({ jobId, isEmployer }) {
@@ -38,8 +39,9 @@ export default function MilestoneCard({ jobId, isEmployer }) {
       setShowAddDialog(false);
       setNewMilestone({ title: '', description: '', due_date: '' });
       fetchMilestones();
+      showSuccess('Milestone added');
     } catch (err) {
-      console.error('Failed to add milestone');
+      showError(err.response?.data?.message || 'Failed to add milestone');
     }
   };
 
@@ -47,8 +49,9 @@ export default function MilestoneCard({ jobId, isEmployer }) {
     try {
       await api.put(`/milestones/${id}`, { status });
       fetchMilestones();
+      showSuccess('Milestone updated');
     } catch (err) {
-      console.error('Failed to update milestone');
+      showError(err.response?.data?.message || 'Failed to update milestone');
     }
   };
 
@@ -57,8 +60,9 @@ export default function MilestoneCard({ jobId, isEmployer }) {
     try {
       await api.delete(`/milestones/${id}`);
       fetchMilestones();
+      showSuccess('Milestone deleted');
     } catch (err) {
-      console.error('Failed to delete milestone');
+      showError(err.response?.data?.message || 'Failed to delete milestone');
     }
   };
 

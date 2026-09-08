@@ -9,6 +9,7 @@ import { Bell, Check, CheckCheck } from 'lucide-react';
 import api from '@/services/api';
 import socket from '@/services/socket';
 import { timeAgo, formatDateTime } from '@/lib/format';
+import { showSuccess, showError } from '@/lib/toast';
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([]);
@@ -71,10 +72,11 @@ export default function Notifications() {
       const appId = notification.application?.id;
       if (!appId) return;
       await api.post(`/worker/applications/${appId}/${action}`);
+      showSuccess(action === 'accept' ? 'Offer accepted — you are now hired!' : 'Offer rejected.');
       fetchNotifications();
       fetchWorkerAvailability();
     } catch (err) {
-      console.error(`Failed to ${action} offer:`, err);
+      showError(err.response?.data?.message || `Failed to ${action} offer`);
     }
   };
 

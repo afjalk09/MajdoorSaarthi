@@ -5,8 +5,8 @@ import api from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import NotificationBell from '@/components/NotificationBell';
+import { showSuccess, showError } from '@/lib/toast';
 import ReviewModal from '@/components/ReviewModal';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
@@ -22,8 +22,6 @@ const WorkerDashboard = () => {
   const [availability, setAvailability] = useState('AVAILABLE');
   const [activeTab, setActiveTab] = useState('jobs');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [historyDetails, setHistoryDetails] = useState({});
   const [applyJob, setApplyJob] = useState(null);
   const [applyRoleId, setApplyRoleId] = useState('');
@@ -85,26 +83,25 @@ const WorkerDashboard = () => {
   const handleApply = async (jobId) => {
     try {
       await api.post(`/worker/jobs/${jobId}/apply`);
-      setSuccess('Application submitted!');
+      showSuccess('Application submitted!');
       setApplyJob(null);
       setApplyRoleId('');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to apply');
+      showError(err.response?.data?.message || 'Failed to apply');
     }
   };
 
   const handleApplyWithRole = async () => {
     setApplying(true);
-    setError('');
     try {
       await api.post(`/worker/jobs/${applyJob.id}/apply`, { jobRoleId: applyRoleId || undefined });
-      setSuccess('Application submitted!');
+      showSuccess('Application submitted!');
       setApplyJob(null);
       setApplyRoleId('');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to apply');
+      showError(err.response?.data?.message || 'Failed to apply');
     } finally {
       setApplying(false);
     }
@@ -114,20 +111,20 @@ const WorkerDashboard = () => {
     if (!window.confirm(`Cancel your work on "${title || 'this job'}"? You will become available for new jobs.`)) return;
     try {
       await api.put(`/worker/jobs/${jobId}/cancel`);
-      setSuccess('Job cancelled — you are now available.');
+      showSuccess('Job cancelled — you are now available.');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to cancel job');
+      showError(err.response?.data?.message || 'Failed to cancel job');
     }
   };
 
   const handleAcceptOffer = async (appId) => {
     try {
       await api.post(`/worker/applications/${appId}/accept`);
-      setSuccess('Offer accepted — you are now hired!');
+      showSuccess('Offer accepted — you are now hired!');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to accept offer');
+      showError(err.response?.data?.message || 'Failed to accept offer');
     }
   };
 
@@ -135,10 +132,10 @@ const WorkerDashboard = () => {
     if (!window.confirm('Reject this job offer?')) return;
     try {
       await api.post(`/worker/applications/${appId}/reject`);
-      setSuccess('Offer rejected.');
+      showSuccess('Offer rejected.');
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reject offer');
+      showError(err.response?.data?.message || 'Failed to reject offer');
     }
   };
 
@@ -162,18 +159,6 @@ const WorkerDashboard = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         {/* Tabs */}
         <div className="flex gap-2 mb-6">
           <Button

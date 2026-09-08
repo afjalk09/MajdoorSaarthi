@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { showSuccess, showError } from '@/lib/toast';
 
 const BrowseWorkers = () => {
   const { user, logout } = useAuth();
@@ -18,8 +18,6 @@ const BrowseWorkers = () => {
 
   const [workers, setWorkers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   // Filters
   const [search, setSearch] = useState('');
@@ -66,13 +64,12 @@ const BrowseWorkers = () => {
       const res = await api.get(`/jobs/${jobId}`);
       setJob(res.data.data || null);
     } catch (err) {
-      setError('Failed to load job details');
+      showError('Failed to load job details');
     }
   };
 
   const fetchWorkers = async () => {
     setLoading(true);
-    setError('');
     try {
       const params = new URLSearchParams();
       params.set('page', page);
@@ -85,7 +82,7 @@ const BrowseWorkers = () => {
       setWorkers(res.data.data || []);
       setPagination(res.data.pagination || { page: 1, limit: 20, total: 0, totalPages: 0 });
     } catch (err) {
-      setError('Failed to load workers');
+      showError('Failed to load workers');
     } finally {
       setLoading(false);
     }
@@ -144,10 +141,10 @@ const BrowseWorkers = () => {
     try {
       await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
       setHireRoles(prev => ({ ...prev, [workerId]: undefined }));
-      setSuccess('Offer sent — awaiting worker acceptance');
+      showSuccess('Offer sent — awaiting worker acceptance');
       fetchWorkers();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send offer');
+      showError(err.response?.data?.message || 'Failed to send offer');
     }
   };
 
@@ -165,18 +162,6 @@ const BrowseWorkers = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         {job && (
           <Card className="mb-6">
             <CardHeader className="pb-3">

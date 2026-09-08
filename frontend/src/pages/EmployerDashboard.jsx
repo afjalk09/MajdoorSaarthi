@@ -7,8 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import NotificationBell from '@/components/NotificationBell';
+import { showSuccess, showError } from '@/lib/toast';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
 
@@ -18,8 +18,6 @@ const EmployerDashboard = () => {
   const [jobs, setJobs] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   // Job form
   const [jobTitle, setJobTitle] = useState('');
@@ -122,8 +120,6 @@ const EmployerDashboard = () => {
 
   const handleCreateJob = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
 
     const roleReqs = roleRequirements
       .filter(r => r.roleName.trim())
@@ -134,7 +130,7 @@ const EmployerDashboard = () => {
       }));
 
     if (roleReqs.length === 0) {
-      setError('Add at least one role with a name');
+      showError('Add at least one role with a name');
       return;
     }
 
@@ -148,7 +144,7 @@ const EmployerDashboard = () => {
         wage_type: wageType,
         duration_days: parseInt(duration) || null
       });
-      setSuccess('Job created successfully');
+      showSuccess('Job created successfully');
       setJobTitle('');
       setJobDesc('');
       setJobLocation('');
@@ -157,7 +153,7 @@ const EmployerDashboard = () => {
       setRoleRequirements([{ roleName: '', skills: '', count: 1 }]);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to create job');
+      showError(err.response?.data?.message || 'Failed to create job');
     }
   };
 
@@ -168,7 +164,7 @@ const EmployerDashboard = () => {
       setMatches(res.data.data || []);
       setShowMatches(true);
     } catch (err) {
-      setError('Failed to get matches');
+      showError('Failed to get matches');
     }
   };
 
@@ -180,7 +176,7 @@ const EmployerDashboard = () => {
       setWorkers(res.data.data || []);
       setShowWorkers(true);
     } catch (err) {
-      setError('Failed to load workers');
+      showError('Failed to load workers');
     } finally {
       setLoadingWorkers(false);
     }
@@ -191,11 +187,11 @@ const EmployerDashboard = () => {
     try {
       await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
       setHireRoles(prev => ({ ...prev, [workerId]: undefined }));
-      setSuccess('Offer sent — awaiting worker acceptance');
+      showSuccess('Offer sent — awaiting worker acceptance');
       setShowMatches(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to hire worker');
+      showError(err.response?.data?.message || 'Failed to hire worker');
     }
   };
 
@@ -204,11 +200,11 @@ const EmployerDashboard = () => {
     try {
       await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
       setHireRoles(prev => ({ ...prev, [workerId]: undefined }));
-      setSuccess('Offer sent — awaiting worker acceptance');
+      showSuccess('Offer sent — awaiting worker acceptance');
       setShowApps(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to accept application');
+      showError(err.response?.data?.message || 'Failed to accept application');
     }
   };
 
@@ -220,7 +216,7 @@ const EmployerDashboard = () => {
       setApplications(res.data.data || []);
       setShowApps(true);
     } catch (err) {
-      setError('Failed to load applications');
+      showError('Failed to load applications');
     } finally {
       setLoadingApplications(false);
     }
@@ -230,21 +226,21 @@ const EmployerDashboard = () => {
     if (!window.confirm(`Remove ${name} from this job? The worker will become available again.`)) return;
     try {
       await api.post(`/jobs/${jobId}/remove/${workerId}`);
-      setSuccess('Worker removed from job');
+      showSuccess('Worker removed from job');
       if (appsJob) handleViewApplications(appsJob);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to remove worker');
+      showError(err.response?.data?.message || 'Failed to remove worker');
     }
   };
 
   const handleStatusUpdate = async (jobId, status) => {
     try {
       await api.put(`/jobs/${jobId}/status`, { status });
-      setSuccess('Job status updated');
+      showSuccess('Job status updated');
       fetchData();
     } catch (err) {
-      setError('Failed to update status');
+      showError('Failed to update status');
     }
   };
 
@@ -306,18 +302,6 @@ const EmployerDashboard = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         <div className="flex gap-2 mb-6">
           <Button variant="outline" onClick={() => navigate('/employer/profile')}>My Profile</Button>
           <Button variant={activeTab === 'create' ? 'default' : 'outline'} onClick={() => setActiveTab('create')}>Create Job</Button>

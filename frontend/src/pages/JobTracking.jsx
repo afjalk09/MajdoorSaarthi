@@ -9,6 +9,7 @@ import MilestoneCard from '@/components/MilestoneCard';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
 import api from '@/services/api';
+import { showSuccess, showError } from '@/lib/toast';
 import { ArrowLeft, MapPin, IndianRupee, Calendar, Users } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -46,7 +47,7 @@ export default function JobTracking() {
       });
       fetchJob();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update worker status');
+      showError(err.response?.data?.message || 'Failed to update worker status');
     } finally {
       setSavingWork(prev => ({ ...prev, [workerId]: false }));
     }
@@ -62,7 +63,7 @@ export default function JobTracking() {
       });
       fetchJob();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to update work status');
+      showError(err.response?.data?.message || 'Failed to update work status');
     } finally {
       setSavingWork(prev => ({ ...prev, me: false }));
     }
@@ -90,9 +91,9 @@ export default function JobTracking() {
     try {
       await api.put(`/jobs/${id}/complete`);
       fetchJob();
-      alert('Job marked as completed');
+      showSuccess('Job marked as completed');
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to complete job');
+      showError(err.response?.data?.message || 'Failed to complete job');
     } finally {
       setCompleting(false);
     }
@@ -102,10 +103,10 @@ export default function JobTracking() {
     if (!confirm('Cancel this job? You will become available for new jobs.')) return;
     try {
       await api.put(`/worker/jobs/${id}/cancel`);
-      alert('Job cancelled — you are now available.');
+      showSuccess('Job cancelled — you are now available.');
       fetchJob();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to cancel job');
+      showError(err.response?.data?.message || 'Failed to cancel job');
     }
   };
 
@@ -113,10 +114,10 @@ export default function JobTracking() {
     if (!confirm(`Remove ${name} from this job? They will become available again.`)) return;
     try {
       await api.post(`/jobs/${id}/remove/${workerId}`);
-      alert('Worker removed');
+      showSuccess('Worker removed');
       fetchJob();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to remove worker');
+      showError(err.response?.data?.message || 'Failed to remove worker');
     }
   };
 

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { showSuccess, showError } from '@/lib/toast';
 
 const EditJob = () => {
   const { id } = useParams();
@@ -15,8 +15,6 @@ const EditJob = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -38,8 +36,8 @@ const EditJob = () => {
       const job = res.data.data;
 
       if (job.status !== 'OPEN') {
-        setError('Can only edit open jobs');
-        setTimeout(() => navigate('/dashboard'), 2000);
+        showError('Can only edit open jobs');
+        setTimeout(() => navigate('/dashboard'), 1500);
         return;
       }
 
@@ -59,7 +57,7 @@ const EditJob = () => {
         })));
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to load job');
+      showError(err.response?.data?.message || 'Failed to load job');
     } finally {
       setLoading(false);
     }
@@ -82,7 +80,6 @@ const EditJob = () => {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    setError('');
     setSaving(true);
 
     const roleReqs = roleRequirements
@@ -94,7 +91,7 @@ const EditJob = () => {
       }));
 
     if (roleReqs.length === 0) {
-      setError('Add at least one role with a name');
+      showError('Add at least one role with a name');
       setSaving(false);
       return;
     }
@@ -109,10 +106,10 @@ const EditJob = () => {
         wage_type: wageType,
         duration_days: parseInt(duration) || null
       });
-      setSuccess('Job updated successfully');
+      showSuccess('Job updated successfully');
       setTimeout(() => navigate('/dashboard'), 1000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to update job');
+      showError(err.response?.data?.message || 'Failed to update job');
     } finally {
       setSaving(false);
     }
@@ -140,18 +137,6 @@ const EditJob = () => {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         <Card>
           <CardHeader>
             <CardTitle>Edit Job Details</CardTitle>

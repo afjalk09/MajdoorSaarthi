@@ -4,7 +4,7 @@ import api from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { showSuccess, showError } from '@/lib/toast';
 
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
@@ -14,8 +14,6 @@ const AdminDashboard = () => {
   const [workers, setWorkers] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -47,10 +45,10 @@ const AdminDashboard = () => {
   const handleVerify = async (docId, status) => {
     try {
       await api.put(`/admin/verifications/${docId}`, { status });
-      setSuccess(`Document ${status}`);
+      showSuccess(`Document ${status}`);
       fetchData();
     } catch (err) {
-      setError('Failed to update verification');
+      showError('Failed to update verification');
     }
   };
 
@@ -67,18 +65,6 @@ const AdminDashboard = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {success && (
-          <Alert className="mb-4">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-
         <div className="flex gap-2 mb-6">
           <Button variant={activeTab === 'analytics' ? 'default' : 'outline'} onClick={() => setActiveTab('analytics')}>Analytics</Button>
           <Button variant={activeTab === 'verifications' ? 'default' : 'outline'} onClick={() => setActiveTab('verifications')}>

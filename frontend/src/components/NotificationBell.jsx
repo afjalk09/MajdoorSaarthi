@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import socket from '@/services/socket';
 import { timeAgo } from '@/lib/format';
+import { showSuccess, showError } from '@/lib/toast';
 
 export default function NotificationBell() {
   const { user } = useAuth();
@@ -92,11 +93,12 @@ export default function NotificationBell() {
       const appId = notification.application?.id;
       if (!appId) return;
       await api.post(`/worker/applications/${appId}/${action}`);
+      showSuccess(action === 'accept' ? 'Offer accepted — you are now hired!' : 'Offer rejected.');
       fetchUnreadCount();
       fetchRecentNotifications();
       fetchWorkerAvailability();
     } catch (err) {
-      console.error(`Failed to ${action} offer:`, err);
+      showError(err.response?.data?.message || `Failed to ${action} offer`);
     }
   };
 
