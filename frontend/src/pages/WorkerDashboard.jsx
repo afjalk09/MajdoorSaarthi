@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import NotificationBell from '@/components/NotificationBell';
 import { showSuccess, showError } from '@/lib/toast';
 import ReviewModal from '@/components/ReviewModal';
@@ -26,6 +27,76 @@ const WorkerDashboard = () => {
   const [applyJob, setApplyJob] = useState(null);
   const [applyRoleId, setApplyRoleId] = useState('');
   const [applying, setApplying] = useState(false);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [skillFilter, setSkillFilter] = useState('');
+  const [wageTypeFilter, setWageTypeFilter] = useState('');
+  const [minWage, setMinWage] = useState('');
+  const [maxWage, setMaxWage] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+
+  const allSkills = useMemo(() => {
+    const set = new Set();
+    jobs.forEach(j => j.requiredSkills?.forEach(s => set.add(s)));
+    return [...set].sort();
+  }, [jobs]);
+
+  const filteredJobs = useMemo(() => {
+    let result = [...jobs];
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(j =>
+        j.title?.toLowerCase().includes(q) ||
+        j.description?.toLowerCase().includes(q)
+      );
+    }
+
+    if (skillFilter) {
+      result = result.filter(j =>
+        j.requiredSkills?.some(s => s.toLowerCase() === skillFilter.toLowerCase())
+      );
+    }
+
+    if (wageTypeFilter) {
+      result = result.filter(j => j.wageType === wageTypeFilter);
+    }
+
+    const min = parseFloat(minWage);
+    if (!isNaN(min)) {
+      result = result.filter(j => j.wageAmount >= min);
+    }
+
+    const max = parseFloat(maxWage);
+    if (!isNaN(max)) {
+      result = result.filter(j => j.wageAmount <= max);
+    }
+
+    switch (sortBy) {
+      case 'wage-high':
+        result.sort((a, b) => (b.wageAmount || 0) - (a.wageAmount || 0));
+        break;
+      case 'wage-low':
+        result.sort((a, b) => (a.wageAmount || 0) - (b.wageAmount || 0));
+        break;
+      case 'newest':
+      default:
+        result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        break;
+    }
+
+    return result;
+  }, [jobs, searchQuery, skillFilter, wageTypeFilter, minWage, maxWage, sortBy]);
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSkillFilter('');
+    setWageTypeFilter('');
+    setMinWage('');
+    setMaxWage('');
+    setSortBy('newest');
+  };
 
   const historyJobs = applications.filter(app => app.job?.status === 'COMPLETED');
 
@@ -191,14 +262,87 @@ const WorkerDashboard = () => {
         {activeTab === 'jobs' && (
           <div className="space-y-4">
             <h2 className="text-xl font-semibold">Available Jobs</h2>
+
+            {/* Filters */}
+            {jobs.length > 0 && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <Input
+                      placeholder="Search by title or description..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+
+                    <Select value={skillFilter} onValueChange={setSkillFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Skills" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allSkills.map(s => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={wageTypeFilter} onValueChange={setWageTypeFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Wage Types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DAILY">Daily</SelectItem>
+                        <SelectItem value="HOURLY">Hourly</SelectItem>
+                        <SelectItem value="PROJECT">Project</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    <Input
+                      type="number"
+                      placeholder="Min wage ₹"
+                      value={minWage}
+                      onChange={(e) => setMinWage(e.target.value)}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Max wage ₹"
+                      value={maxWage}
+                      onChange={(e) => setMaxWage(e.target.value)}
+                    />
+
+                    <div className="flex gap-2">
+                      <Select value={sortBy} onValueChange={setSortBy}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="newest">Newest First</SelectItem>
+                          <SelectItem value="wage-high">Wage: High → Low</SelectItem>
+                          <SelectItem value="wage-low">Wage: Low → High</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button variant="outline" onClick={resetFilters} className="shrink-0">
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {jobs.length === 0 ? (
               <Card>
                 <CardContent className="py-8 text-center text-muted-foreground">
                   No jobs available in your area right now.
                 </CardContent>
               </Card>
+            ) : filteredJobs.length === 0 ? (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No jobs match your filters.
+                </CardContent>
+              </Card>
             ) : (
-              jobs.map((job) => (
+              filteredJobs.map((job) => (
                 <Card key={job.id}>
                   <CardHeader>
                     <div className="flex justify-between items-start">
