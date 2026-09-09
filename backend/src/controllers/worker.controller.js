@@ -238,8 +238,9 @@ exports.applyToJob = async (req, res, next) => {
         job.employer.userId,
         'APPLICATION_RECEIVED',
         'New Job Application',
-        `${profile.fullName} applied for "${job.title}". Review and accept the application.`,
-        jobId
+        `${profile.fullName} applied for "${job.title}". Accept or reject the application.`,
+        jobId,
+        application.id
       );
     }
 
@@ -497,9 +498,12 @@ exports.updateMyWorkStatus = async (req, res, next) => {
     const { id: jobId } = req.params;
     const { workStatus, workNote } = req.body || {};
 
-    const allowed = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETED'];
+    const allowed = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETION_REQUESTED'];
     if (workStatus && !allowed.includes(workStatus)) {
       return res.status(400).json({ success: false, message: 'Invalid work status' });
+    }
+    if (!workStatus && workNote === undefined) {
+      return res.status(400).json({ success: false, message: 'Nothing to update' });
     }
 
     const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
@@ -507,7 +511,10 @@ exports.updateMyWorkStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { employer: { include: { user: { select: { id: true } } } } }
+    });
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
@@ -531,6 +538,17 @@ exports.updateMyWorkStatus = async (req, res, next) => {
       where: { id: app.id },
       data
     });
+
+    if (workStatus === 'COMPLETION_REQUESTED' && job.employer?.user?.id) {
+      await createNotification(
+        job.employer.user.id,
+        'WORK_COMPLETION_REQUEST',
+        'Work Completion Request',
+        `${profile.fullName} has marked their work as complete for "${job.title}". Please verify and accept or reject it.`,
+        jobId,
+        app.id
+      );
+    }
 
     res.json({ success: true, data: updated });
   } catch (error) {

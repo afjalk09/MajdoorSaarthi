@@ -102,6 +102,20 @@ export default function NotificationBell() {
     }
   };
 
+  const handleApplicationAction = async (notification, action) => {
+    try {
+      const jobId = notification.job?.id || notification.jobId;
+      const workerId = notification.application?.workerId;
+      if (!jobId || !workerId) return;
+      await api.post(`/jobs/${jobId}/${action}/${workerId}`);
+      showSuccess(action === 'accept' ? 'Application accepted — worker assigned!' : 'Application rejected.');
+      fetchUnreadCount();
+      fetchRecentNotifications();
+    } catch (err) {
+      showError(err.response?.data?.message || `Failed to ${action} application`);
+    }
+  };
+
   return (
     <DropdownMenu onOpenChange={(open) => {
       if (open) {
@@ -167,6 +181,25 @@ export default function NotificationBell() {
                       size="sm"
                       className="h-7 text-xs flex-1"
                       onClick={() => handleOfferAction(notification, 'reject')}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+                {notification.type === 'APPLICATION_RECEIVED' && user?.role === 'EMPLOYER' && notification.application?.status === 'PENDING' && (
+                  <div className="flex gap-2 mt-1" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => handleApplicationAction(notification, 'accept')}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => handleApplicationAction(notification, 'reject')}
                     >
                       Reject
                     </Button>

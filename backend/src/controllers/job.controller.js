@@ -172,6 +172,10 @@ exports.getEmployerJobs = async (req, res, next) => {
               select: { status: true }
             }
           }
+        },
+        applications: {
+          where: { status: { in: ['HIRED', 'COMPLETED'] } },
+          select: { status: true }
         }
       },
       orderBy: { createdAt: 'desc' }
@@ -180,6 +184,8 @@ exports.getEmployerJobs = async (req, res, next) => {
     // Derive real per-role capacity: only HIRED/COMPLETED fill a seat; pending offers don't.
     const jobsWithRoleCounts = jobs.map(job => ({
       ...job,
+      applications: undefined,
+      totalHired: (job.applications || []).length,
       jobRoles: job.jobRoles.map(role => {
         const offeredCount = role.applications.filter(a => a.status === 'OFFERED').length;
         const hiredCount = role.applications.length - offeredCount;
@@ -712,6 +718,224 @@ exports.hireWorker = async (req, res, next) => {
   }
 };
 
+exports.acceptApplication = async (req, res, next) => {
+  try {
+    const { id: jobId, workerId } = req.params;
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        jobRoles: {
+          include: {
+            applications: {
+              where: { status: { in: ['HIRED', 'COMPLETED'] } },
+              select: { status: true }
+            }
+          }
+        }
+      }
+    });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
+      return res.status(400).json({ success: false, message: 'This job is no longer active' });
+    }
+
+    const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!employer || job.employerId !== employer.id) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const app = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId } }
+    });
+    if (!app) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+    if (app.status !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'No pending application from this worker' });
+    }
+
+    const worker = await prisma.workerProfile.findUnique({ where: { id: workerId } });
+    if (!worker) {
+      return res.status(404).json({ success: false, message: 'Worker not found' });
+    }
+    if (worker.availability !== 'AVAILABLE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Worker is not available (already assigned to another job)'
+      });
+    }
+
+    // Resolve the role: honor the applied role if it still has space, else auto-assign.
+    const remainingById = {};
+    for (const role of job.jobRoles) {
+      remainingById[role.id] = role.count - role.applications.length;
+    }
+
+    let assignedRoleId = app.jobRoleId;
+    if (assignedRoleId && (remainingById[assignedRoleId] === undefined || remainingById[assignedRoleId] <= 0)) {
+      assignedRoleId = null;
+    }
+
+    if (!assignedRoleId) {
+      let bestRole = null;
+      let bestScore = 0;
+
+      for (const role of job.jobRoles) {
+        if (remainingById[role.id] <= 0) continue;
+
+        const workerSkills = worker.skills || [];
+        const roleSkills = role.skills || [];
+        const matchedSkills = workerSkills.filter(s => roleSkills.includes(s));
+        const score = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestRole = role;
+        }
+      }
+
+      if (!bestRole) {
+        let bestRemaining = 0;
+        for (const role of job.jobRoles) {
+          const remaining = remainingById[role.id];
+          if (remaining >= 0 && remaining > bestRemaining) {
+            bestRemaining = remaining;
+            bestRole = role;
+          }
+        }
+      }
+
+      if (bestRole) {
+        assignedRoleId = bestRole.id;
+      }
+    }
+
+    if (!assignedRoleId || remainingById[assignedRoleId] <= 0) {
+      return res.status(400).json({ success: false, message: 'No available slots in this job' });
+    }
+
+    const updated = await prisma.jobApplication.update({
+      where: { id: app.id },
+      data: { status: 'HIRED', jobRoleId: assignedRoleId }
+    });
+
+    await prisma.workerProfile.update({
+      where: { id: workerId },
+      data: { availability: 'BUSY' }
+    });
+
+    const roleName = job.jobRoles.find(r => r.id === assignedRoleId)?.roleName || 'the team';
+
+    // Withdraw leftover OFFERED apps for the same role ONLY when this acceptance fills it.
+    if (assignedRoleId && remainingById[assignedRoleId] - 1 <= 0) {
+      const pendingOffers = await prisma.jobApplication.findMany({
+        where: {
+          jobId,
+          jobRoleId: assignedRoleId,
+          status: 'OFFERED',
+          NOT: { id: app.id }
+        },
+        select: { id: true, workerId: true }
+      });
+
+      if (pendingOffers.length > 0) {
+        await prisma.jobApplication.updateMany({
+          where: { id: { in: pendingOffers.map(p => p.id) } },
+          data: { status: 'OFFER_WITHDRAWN' }
+        });
+
+        for (const pending of pendingOffers) {
+          const pendingUser = await prisma.workerProfile.findUnique({
+            where: { id: pending.workerId },
+            select: { userId: true }
+          });
+          if (pendingUser) {
+            await createNotification(
+              pendingUser.userId,
+              'OFFER_WITHDRAWN',
+              'Offer Withdrawn',
+              `Your offer for "${job.title}" as ${roleName} was withdrawn because the role has been fully filled.`,
+              jobId
+            );
+          }
+        }
+      }
+    }
+
+    await recomputeJobFill(jobId);
+
+    if (worker.userId) {
+      await createNotification(
+        worker.userId,
+        'APPLICATION_ACCEPTED',
+        'Application Accepted',
+        `Your application for "${job.title}" as ${roleName} was accepted — you are now assigned to this job.`,
+        jobId,
+        updated.id
+      );
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.rejectApplication = async (req, res, next) => {
+  try {
+    const { id: jobId, workerId } = req.params;
+
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
+    if (!employer || job.employerId !== employer.id) {
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const app = await prisma.jobApplication.findUnique({
+      where: { jobId_workerId: { jobId, workerId } }
+    });
+    if (!app) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+    if (app.status !== 'PENDING') {
+      return res.status(400).json({ success: false, message: 'No pending application from this worker' });
+    }
+
+    const updated = await prisma.jobApplication.update({
+      where: { id: app.id },
+      data: { status: 'REJECTED' }
+    });
+
+    const worker = await prisma.workerProfile.findUnique({
+      where: { id: workerId },
+      select: { userId: true }
+    });
+
+    if (worker?.userId) {
+      await createNotification(
+        worker.userId,
+        'APPLICATION_REJECTED',
+        'Application Rejected',
+        `Your application for "${job.title}" was rejected by the employer.`,
+        jobId,
+        updated.id
+      );
+    }
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.removeWorkerFromJob = async (req, res, next) => {
   try {
     const { id: jobId, workerId } = req.params;
@@ -771,8 +995,14 @@ exports.updateWorkerWorkStatus = async (req, res, next) => {
     if (workStatus && !allowed.includes(workStatus)) {
       return res.status(400).json({ success: false, message: 'Invalid work status' });
     }
+    if (!workStatus && workNote === undefined) {
+      return res.status(400).json({ success: false, message: 'Nothing to update' });
+    }
 
-    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: { employer: { include: { user: { select: { id: true } } } } }
+    });
     if (!job) {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
@@ -787,7 +1017,8 @@ exports.updateWorkerWorkStatus = async (req, res, next) => {
     }
 
     const app = await prisma.jobApplication.findUnique({
-      where: { jobId_workerId: { jobId, workerId } }
+      where: { jobId_workerId: { jobId, workerId } },
+      include: { worker: { include: { user: { select: { id: true } } } } }
     });
     if (!app || app.status !== 'HIRED') {
       return res.status(400).json({ success: false, message: 'Worker is not hired on this job' });
@@ -801,6 +1032,37 @@ exports.updateWorkerWorkStatus = async (req, res, next) => {
       where: { id: app.id },
       data
     });
+
+    // Accepting a worker's completion: free them immediately + notify the worker.
+    if (workStatus === 'COMPLETED') {
+      await prisma.workerProfile.update({
+        where: { id: workerId },
+        data: { availability: 'AVAILABLE' }
+      });
+      if (app.worker?.user?.id) {
+        await createNotification(
+          app.worker.user.id,
+          'WORK_ACCEPTED',
+          'Work Accepted',
+          `${employer.displayName} verified and accepted your work on "${job.title}". You are now available for new jobs.`,
+          jobId,
+          app.id
+        );
+      }
+    } else if (
+      app.workStatus === 'COMPLETION_REQUESTED' &&
+      app.worker?.user?.id
+    ) {
+      // Employer reset a pending completion request (reject / needs more work).
+      await createNotification(
+        app.worker.user.id,
+        'WORK_REJECTED',
+        'Work Not Accepted',
+        `${employer.displayName} needs more work on "${job.title}". Your completion request was not accepted.`,
+        jobId,
+        app.id
+      );
+    }
 
     res.json({ success: true, data: updated });
   } catch (error) {

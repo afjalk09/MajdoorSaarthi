@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import socket from '../services/socket';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -102,6 +103,9 @@ const WorkerDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    const onNewNotification = () => fetchData();
+    socket.on('notification:new', onNewNotification);
+    return () => socket.off('notification:new', onNewNotification);
   }, []);
 
   useEffect(() => {

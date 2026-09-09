@@ -18,6 +18,7 @@ import { Textarea } from '@/components/ui/textarea';
 const WORK_STATUS_LABELS = {
   NOT_STARTED: 'Not Started',
   IN_PROGRESS: 'In Progress',
+  COMPLETION_REQUESTED: 'Completion Requested',
   COMPLETED: 'Completed'
 };
 
@@ -53,6 +54,38 @@ export default function JobTracking() {
     }
   };
 
+  const acceptWorkerCompletion = async (workerId, name) => {
+    if (!confirm(`Accept ${name}'s work as complete? They will be freed and marked available.`)) return;
+    setSavingWork(prev => ({ ...prev, [workerId]: true }));
+    try {
+      await api.put(`/jobs/${id}/workers/${workerId}/status`, {
+        workStatus: 'COMPLETED'
+      });
+      fetchJob();
+      showSuccess(`${name}'s work verified and accepted. They are now available.`);
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to accept worker completion');
+    } finally {
+      setSavingWork(prev => ({ ...prev, [workerId]: false }));
+    }
+  };
+
+  const rejectWorkerCompletion = async (workerId, name) => {
+    if (!confirm(`Reject ${name}'s completion request? Their status will reset to In Progress.`)) return;
+    setSavingWork(prev => ({ ...prev, [workerId]: true }));
+    try {
+      await api.put(`/jobs/${id}/workers/${workerId}/status`, {
+        workStatus: 'IN_PROGRESS'
+      });
+      fetchJob();
+      showSuccess(`${name}'s completion request rejected — status reset to In Progress.`);
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to reject worker completion');
+    } finally {
+      setSavingWork(prev => ({ ...prev, [workerId]: false }));
+    }
+  };
+
   const saveMyWorkStatus = async () => {
     const draft = workDrafts['me'] || {};
     setSavingWork(prev => ({ ...prev, me: true }));
@@ -64,6 +97,22 @@ export default function JobTracking() {
       fetchJob();
     } catch (err) {
       showError(err.response?.data?.message || 'Failed to update work status');
+    } finally {
+      setSavingWork(prev => ({ ...prev, me: false }));
+    }
+  };
+
+  const requestWorkCompletion = async () => {
+    if (!confirm('Mark your work as complete and notify the employer for verification?')) return;
+    setSavingWork(prev => ({ ...prev, me: true }));
+    try {
+      await api.put(`/worker/applications/${id}/work-status`, {
+        workStatus: 'COMPLETION_REQUESTED'
+      });
+      fetchJob();
+      showSuccess('Completion request sent to employer for verification.');
+    } catch (err) {
+      showError(err.response?.data?.message || 'Failed to request completion');
     } finally {
       setSavingWork(prev => ({ ...prev, me: false }));
     }
@@ -229,6 +278,8 @@ export default function JobTracking() {
                           <p className="text-sm font-medium text-muted-foreground mb-1">Hired Workers</p>
                           {job.hiredWorkers.map((w) => {
                             const draft = workDrafts[w.id] || {};
+                            const isPending = w.workStatus === 'COMPLETION_REQUESTED';
+                            const isCompleted = w.workStatus === 'COMPLETED';
                             return (
                               <div key={w.id} className="border rounded-lg p-3">
                                 <div className="flex items-center justify-between">
@@ -237,47 +288,86 @@ export default function JobTracking() {
                                     <p className="text-xs text-muted-foreground">
                                       {w.skills?.length ? w.skills.join(', ') : 'No skills listed'}
                                     </p>
+                                    <p className="text-xs mt-1">
+                                      {WORK_STATUS_LABELS[w.workStatus] || w.workStatus}
+                                      {isPending && (
+                                        <Badge className="ml-2 bg-yellow-500">Awaiting Your Acceptance</Badge>
+                                      )}
+                                      {isCompleted && (
+                                        <Badge className="ml-2 bg-green-600">Completed & Available</Badge>
+                                      )}
+                                    </p>
                                   </div>
                                   <Button variant="destructive" size="sm" onClick={() => handleRemoveWorker(w.id, w.fullName)}>
                                     Remove Worker
                                   </Button>
                                 </div>
-                                <div className="mt-3 space-y-2">
-                                  <div>
-                                    <Label className="text-xs">Work Status</Label>
-                                    <Select
-                                      value={(draft.workStatus ?? w.workStatus) || 'NOT_STARTED'}
-                                      onValueChange={(v) => updateWorkDraft(w.id, 'workStatus', v)}
-                                    >
-                                      <SelectTrigger className="mt-1">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="NOT_STARTED">Not Started</SelectItem>
-                                        <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                                        <SelectItem value="COMPLETED">Completed</SelectItem>
-                                      </SelectContent>
-                                    </Select>
+                                {isCompleted ? (
+                                  <p className="text-sm text-muted-foreground mt-3">
+                                    This worker's work has been verified and accepted — they are already freed and available for new jobs.
+                                  </p>
+                                ) : (
+                                  <div className="mt-3 space-y-2">
+                                    {isPending ? (
+                                      <div className="flex gap-2">
+                                        <Button
+                                          size="sm"
+                                          className="flex-1 bg-green-600 hover:bg-green-700"
+                                          disabled={savingWork[w.id]}
+                                          onClick={() => acceptWorkerCompletion(w.id, w.fullName)}
+                                        >
+                                          {savingWork[w.id] ? 'Saving...' : 'Accept Completion'}
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="flex-1"
+                                          disabled={savingWork[w.id]}
+                                          onClick={() => rejectWorkerCompletion(w.id, w.fullName)}
+                                        >
+                                          Reject
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <div>
+                                          <Label className="text-xs">Work Status</Label>
+                                          <Select
+                                            value={(draft.workStatus ?? w.workStatus) || 'NOT_STARTED'}
+                                            onValueChange={(v) => updateWorkDraft(w.id, 'workStatus', v)}
+                                          >
+                                            <SelectTrigger className="mt-1">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="NOT_STARTED">Not Started</SelectItem>
+                                              <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                                              <SelectItem value="COMPLETED">Completed</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </div>
+                                        <div>
+                                          <Label className="text-xs">Note</Label>
+                                          <Textarea
+                                            className="mt-1"
+                                            rows={2}
+                                            placeholder="Progress note..."
+                                            value={draft.workNote !== undefined ? draft.workNote : (w.workNote || '')}
+                                            onChange={(e) => updateWorkDraft(w.id, 'workNote', e.target.value)}
+                                          />
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          className="w-full"
+                                          disabled={savingWork[w.id]}
+                                          onClick={() => saveEmployerWorkStatus(w.id)}
+                                        >
+                                          {savingWork[w.id] ? 'Saving...' : 'Save Status'}
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
-                                  <div>
-                                    <Label className="text-xs">Note</Label>
-                                    <Textarea
-                                      className="mt-1"
-                                      rows={2}
-                                      placeholder="Progress note..."
-                                      value={draft.workNote !== undefined ? draft.workNote : (w.workNote || '')}
-                                      onChange={(e) => updateWorkDraft(w.id, 'workNote', e.target.value)}
-                                    />
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    className="w-full"
-                                    disabled={savingWork[w.id]}
-                                    onClick={() => saveEmployerWorkStatus(w.id)}
-                                  >
-                                    {savingWork[w.id] ? 'Saving...' : 'Save Status'}
-                                  </Button>
-                                </div>
+                                )}
                               </div>
                             );
                           })}
@@ -316,42 +406,72 @@ export default function JobTracking() {
                       const myRole = job.jobRoles?.find(r => r.id === job.hiredWorkers[0]?.jobRoleId);
                       const my = job.hiredWorkers[0] || {};
                       const draft = workDrafts['me'] || {};
+                      const myPending = my.workStatus === 'COMPLETION_REQUESTED';
+                      const myCompleted = my.workStatus === 'COMPLETED';
                       return (
                         <div className="space-y-2">
                           {myRole && <p className="text-sm text-muted-foreground">Role: {myRole.roleName}</p>}
-                          <div>
-                            <Label className="text-xs">My Status</Label>
-                            <Select
-                              value={(draft.workStatus ?? my.workStatus) || 'NOT_STARTED'}
-                              onValueChange={(v) => updateWorkDraft('me', 'workStatus', v)}
-                            >
-                              <SelectTrigger className="mt-1">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="NOT_STARTED">Not Started</SelectItem>
-                                <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                                <SelectItem value="COMPLETED">Completed</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label className="text-xs">Note</Label>
-                            <Textarea
-                              className="mt-1"
-                              rows={2}
-                              placeholder="Update the employer on your progress..."
-                              value={draft.workNote !== undefined ? draft.workNote : (my.workNote || '')}
-                              onChange={(e) => updateWorkDraft('me', 'workNote', e.target.value)}
-                            />
-                          </div>
-                          <Button
-                            className="w-full"
-                            disabled={savingWork.me}
-                            onClick={saveMyWorkStatus}
-                          >
-                            {savingWork.me ? 'Saving...' : 'Update My Progress'}
-                          </Button>
+                          <p className="text-sm">
+                            {WORK_STATUS_LABELS[my.workStatus] || my.workStatus}
+                            {myPending && (
+                              <Badge className="ml-2 bg-yellow-500">Awaiting Employer Verification</Badge>
+                            )}
+                            {myCompleted && (
+                              <Badge className="ml-2 bg-green-600">Verified & Available</Badge>
+                            )}
+                          </p>
+                          {myPending ? (
+                            <p className="text-sm text-muted-foreground">
+                              Your completion request has been sent to the employer for verification. You'll be
+                              notified once they accept (you'll be freed and available) or reject it.
+                            </p>
+                          ) : myCompleted ? (
+                            <p className="text-sm text-muted-foreground">
+                              Your work has been verified and accepted. You are now available for new jobs.
+                            </p>
+                          ) : (
+                            <>
+                              <div>
+                                <Label className="text-xs">My Status</Label>
+                                <Select
+                                  value={(draft.workStatus ?? my.workStatus) || 'NOT_STARTED'}
+                                  onValueChange={(v) => updateWorkDraft('me', 'workStatus', v)}
+                                >
+                                  <SelectTrigger className="mt-1">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="NOT_STARTED">Not Started</SelectItem>
+                                    <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div>
+                                <Label className="text-xs">Note</Label>
+                                <Textarea
+                                  className="mt-1"
+                                  rows={2}
+                                  placeholder="Update the employer on your progress..."
+                                  value={draft.workNote !== undefined ? draft.workNote : (my.workNote || '')}
+                                  onChange={(e) => updateWorkDraft('me', 'workNote', e.target.value)}
+                                />
+                              </div>
+                              <Button
+                                className="w-full"
+                                disabled={savingWork.me}
+                                onClick={saveMyWorkStatus}
+                              >
+                                {savingWork.me ? 'Saving...' : 'Update My Progress'}
+                              </Button>
+                              <Button
+                                className="w-full bg-green-600 hover:bg-green-700"
+                                disabled={savingWork.me || job.status === 'COMPLETED' || job.status === 'CANCELLED'}
+                                onClick={requestWorkCompletion}
+                              >
+                                {savingWork.me ? 'Sending...' : 'Mark My Work Complete'}
+                              </Button>
+                            </>
+                          )}
                         </div>
                       );
                     })()}

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../services/api';
+import socket from '../services/socket';
 
 const AuthContext = createContext(null);
 
@@ -25,6 +26,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
 
+    reconnectSocketWithToken(token);
+
     return userData;
   };
 
@@ -36,13 +39,23 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
 
+    reconnectSocketWithToken(token);
+
     return userData;
+  };
+
+  const reconnectSocketWithToken = (token) => {
+    if (!token) return;
+    socket.auth = { token };
+    socket.disconnect();
+    socket.connect();
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    socket.disconnect();
   };
 
   return (

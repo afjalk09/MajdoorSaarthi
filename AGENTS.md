@@ -100,6 +100,12 @@ A single `Job` (project) can require multiple workers across different **roles**
 - Frontend: `NotificationBell` + `Notifications.jsx` render inline **Accept/Reject** buttons for `JOB_OFFER` notifications with `application.status === 'OFFERED'`; `WorkerDashboard` applications tab shows OFFERED cards (role name + wage + Accept/Reject); `EmployerDashboard` hire actions say "Send Offer"/"OFFER PENDING".
 - **Employer picks the role** (no silent auto-assign): Browse Workers, AI Matches, and Job Applications modals in `EmployerDashboard.jsx` render a role `<select>` per worker (open roles only), pre-selected to the AI-suggested role (matches) or applied role (applications), else most-remaining-capacity. `handleHire(job, workerId, suggestedId)` sends the chosen `jobRoleId`. **Role capacity is computed from REAL apps**: `getEmployerJobs`/`getJobById` attach `offeredCount` + `remainingCapacity = count - (HIRED+COMPLETED+OFFERED)` per role; `hireWorker` & `getMatches` use real remaining (not stored `filledCount`) so they never pick a role that's actually reserved full.
 
+### Application Accept/Reject (employer responds to a worker's application)
+- **`POST /api/jobs/:id/accept/:workerId`** (`acceptApplication`) and **`POST /api/jobs/:id/reject/:workerId`** (`rejectApplication`) are the employer's response to a **PENDING application** — distinct from sending an offer.
+- **Accept = direct assignment** (Option A): validates employer owns the job + job active + worker still `AVAILABLE`, resolves the role (applied role → skill auto-assign → most-remaining-capacity fallback; else `400 "No available slots"`), sets app `PENDING → HIRED`, worker → `BUSY`, runs `recomputeJobFill` (may flip job `IN_PROGRESS`). Capacity-aware: if the role becomes full, other `OFFERED` apps on that role auto-withdraw (`OFFER_WITHDRAWN`). Worker notified `APPLICATION_ACCEPTED`.
+- **Reject**: sets app `PENDING → REJECTED`, worker stays `AVAILABLE` and can re-apply later; worker notified `APPLICATION_REJECTED`.
+- `applyToJob` creates the employer `APPLICATION_RECEIVED` notification **with `applicationId`** so the payload carries `application.workerId`/`jobRoleId`/`status`. `NotificationBell` + `Notifications.jsx` render inline **Accept/Reject** for it when `user.role === 'EMPLOYER'` && `application?.status === 'PENDING'`.
+
 ### Per-Worker Work Status (NOT milestones)
 - MongoDB-like per-application fields on `JobApplication`: `workStatus` (NOT_STARTED | IN_PROGRESS | COMPLETED) and `workNote String?`.
 - **Rationale**: milestones remain job-level; each worker is tracked separately via `workStatus`/`workNote` only (simple, per design choice).
@@ -166,6 +172,8 @@ Each match includes:
 - `GET /api/jobs/:id` — Get job details
 - `GET /api/jobs/:id/matches` — AI matched workers
 - `POST /api/jobs/:id/hire/:workerId` — Send job offer to worker (app → OFFERED; worker accepts via `/accept`)
+- `POST /api/jobs/:id/accept/:workerId` — Employer accepts a PENDING application (app → HIRED, worker → BUSY, role slot filled, job may flip IN_PROGRESS; worker gets `APPLICATION_ACCEPTED` notification)
+- `POST /api/jobs/:id/reject/:workerId` — Employer rejects a PENDING application (app → REJECTED, worker notified `APPLICATION_REJECTED`, stays AVAILABLE, can re-apply later)
 - `PUT /api/jobs/:id/status` — Update status
 - `PUT /api/jobs/:id/complete` — Mark job as completed (both parties)
 - `POST /api/jobs/:id/remove/:workerId` — Employer removes hired worker (status → REJECTED)

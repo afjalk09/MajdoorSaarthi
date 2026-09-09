@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import socket from '../services/socket';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -56,6 +57,9 @@ const EmployerDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    const onNewNotification = () => fetchData();
+    socket.on('notification:new', onNewNotification);
+    return () => socket.off('notification:new', onNewNotification);
   }, []);
 
   const activeJobs = jobs.filter(j => j.status !== 'COMPLETED');
@@ -474,6 +478,16 @@ const EmployerDashboard = () => {
                       <div className="flex gap-2">
                         {job.status === 'OPEN' && (
                           <>
+                            {job.totalHired > 0 && (
+                              <>
+                                <Button variant="outline" onClick={() => navigate(`/jobs/${job.id}/track`)}>
+                                  Track Job
+                                </Button>
+                                <Button onClick={() => handleStatusUpdate(job.id, 'completed')}>
+                                  Mark Completed
+                                </Button>
+                              </>
+                            )}
                             <Button variant="outline" onClick={() => navigate(`/employer/jobs/${job.id}/edit`)}>
                               Edit
                             </Button>

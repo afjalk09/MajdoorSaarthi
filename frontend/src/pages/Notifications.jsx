@@ -80,6 +80,19 @@ export default function Notifications() {
     }
   };
 
+  const handleApplicationAction = async (notification, action) => {
+    try {
+      const jobId = notification.job?.id || notification.jobId;
+      const workerId = notification.application?.workerId;
+      if (!jobId || !workerId) return;
+      await api.post(`/jobs/${jobId}/${action}/${workerId}`);
+      showSuccess(action === 'accept' ? 'Application accepted — worker assigned!' : 'Application rejected.');
+      fetchNotifications();
+    } catch (err) {
+      showError(err.response?.data?.message || `Failed to ${action} application`);
+    }
+  };
+
   const getNotificationIcon = (type) => {
     switch (type) {
       case 'HIRED': return '🎉';
@@ -88,6 +101,12 @@ export default function Notifications() {
       case 'DISPUTE_RAISED': return '⚠️';
       case 'DISPUTE_RESOLVED': return '🔧';
       case 'REVIEW_RECEIVED': return '⭐';
+      case 'WORK_COMPLETION_REQUEST': return '🙋';
+      case 'WORK_ACCEPTED': return '👌';
+      case 'WORK_REJECTED': return '↩️';
+      case 'APPLICATION_RECEIVED': return '📥';
+      case 'APPLICATION_ACCEPTED': return '✅';
+      case 'APPLICATION_REJECTED': return '❌';
       case 'WORKER_CANCELLED': return '🚪';
       case 'REMOVED_FROM_JOB': return '🚫';
       default: return '📌';
@@ -165,6 +184,25 @@ export default function Notifications() {
                             size="sm"
                             className="flex-1"
                             onClick={() => handleOfferAction(notification, 'reject')}
+                          >
+                            Reject
+                          </Button>
+                        </div>
+                      )}
+                      {notification.type === 'APPLICATION_RECEIVED' && user?.role === 'EMPLOYER' && notification.application?.status === 'PENDING' && (
+                        <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleApplicationAction(notification, 'accept')}
+                          >
+                            Accept
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => handleApplicationAction(notification, 'reject')}
                           >
                             Reject
                           </Button>
