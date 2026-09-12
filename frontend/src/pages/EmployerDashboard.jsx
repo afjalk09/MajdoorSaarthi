@@ -27,6 +27,10 @@ const EmployerDashboard = () => {
   const [wageAmount, setWageAmount] = useState('');
   const [wageType, setWageType] = useState('DAILY');
   const [duration, setDuration] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [roleRequirements, setRoleRequirements] = useState([
     { roleName: '', skills: '', count: 1 }
   ]);
@@ -50,6 +54,20 @@ const EmployerDashboard = () => {
 
   // Chosen role id per worker being offered a job (keyed by workerId)
   const [hireRoles, setHireRoles] = useState({});
+
+  const formatSchedule = (job) => {
+    if (!job.startDate && !job.startTime) return null;
+    const parts = [];
+    if (job.startDate) {
+      const start = new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      const end = job.endDate ? new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+      parts.push(end && end !== start ? `${start} – ${end}` : start);
+    }
+    if (job.startTime) {
+      parts.push(`${job.startTime} – ${job.endTime || '?'}`);
+    }
+    return parts.join(' | ');
+  };
 
   const setHireRole = (workerId, roleId) => {
     setHireRoles(prev => ({ ...prev, [workerId]: roleId }));
@@ -146,7 +164,11 @@ const EmployerDashboard = () => {
         location_text: jobLocation,
         wage_amount: parseFloat(wageAmount),
         wage_type: wageType,
-        duration_days: parseInt(duration) || null
+        duration_days: parseInt(duration) || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        start_time: startTime || null,
+        end_time: endTime || null
       });
       showSuccess('Job created successfully');
       setJobTitle('');
@@ -154,6 +176,10 @@ const EmployerDashboard = () => {
       setJobLocation('');
       setWageAmount('');
       setDuration('');
+      setStartDate('');
+      setEndDate('');
+      setStartTime('');
+      setEndTime('');
       setRoleRequirements([{ roleName: '', skills: '', count: 1 }]);
       fetchData();
     } catch (err) {
@@ -270,6 +296,16 @@ const EmployerDashboard = () => {
         <p className="text-xs text-red-500">No role has an available slot.</p>
       );
     }
+    // Single open role: auto-select it — no dropdown needed.
+    if (roles.length === 1) {
+      const role = roles[0];
+      return (
+        <p className="text-sm text-muted-foreground">
+          Role: <span className="font-medium text-foreground">{role.roleName}</span>
+          <span className="ml-1">({role.filledCount || 0}/{role.count} filled)</span>
+        </p>
+      );
+    }
     const value = effectiveRoleId(job, workerId, suggestedId);
     return (
       <select
@@ -364,6 +400,26 @@ const EmployerDashboard = () => {
                   <div className="space-y-2">
                     <Label>Duration (days)</Label>
                     <Input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Start Date</Label>
+                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>End Date</Label>
+                    <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Start Time</Label>
+                    <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>End Time</Label>
+                    <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
                   </div>
                 </div>
 
@@ -471,6 +527,12 @@ const EmployerDashboard = () => {
                       </div>
                     )}
 
+                    {formatSchedule(job) && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Schedule: {formatSchedule(job)}
+                      </p>
+                    )}
+
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">
                         Total Workers: {job.workersNeeded} | Duration: {job.durationDays} days
@@ -558,6 +620,11 @@ const EmployerDashboard = () => {
                           Completed: {job.updatedAt ? new Date(job.updatedAt).toLocaleDateString() : 'N/A'}
                         </span>
                       </div>
+                      {formatSchedule(job) && (
+                        <p className="text-sm text-muted-foreground mb-3">
+                          Schedule: {formatSchedule(job)}
+                        </p>
+                      )}
                       {detail ? (
                         <div className="space-y-3">
                           <JobReviewPanel

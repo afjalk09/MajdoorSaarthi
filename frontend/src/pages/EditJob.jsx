@@ -22,6 +22,10 @@ const EditJob = () => {
   const [wageAmount, setWageAmount] = useState('');
   const [wageType, setWageType] = useState('DAILY');
   const [duration, setDuration] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [roleRequirements, setRoleRequirements] = useState([
     { roleName: '', skills: '', count: 1 }
   ]);
@@ -47,6 +51,10 @@ const EditJob = () => {
       setWageAmount(job.wageAmount || '');
       setWageType(job.wageType || 'DAILY');
       setDuration(job.durationDays || '');
+      setStartDate(job.startDate ? job.startDate.slice(0, 10) : '');
+      setEndDate(job.endDate ? job.endDate.slice(0, 10) : '');
+      setStartTime(job.startTime || '');
+      setEndTime(job.endTime || '');
 
       // Load existing role requirements
       if (job.jobRoles && job.jobRoles.length > 0) {
@@ -104,7 +112,11 @@ const EditJob = () => {
         location_text: location,
         wage_amount: parseFloat(wageAmount),
         wage_type: wageType,
-        duration_days: parseInt(duration) || null
+        duration_days: parseInt(duration) || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        start_time: startTime || null,
+        end_time: endTime || null
       });
       showSuccess('Job updated successfully');
       setTimeout(() => navigate('/dashboard'), 1000);
@@ -211,6 +223,46 @@ const EditJob = () => {
                     value={duration}
                     onChange={(e) => setDuration(e.target.value)}
                     placeholder="5"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="startDate">Start Date</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endDate">End Date</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="startTime">Start Time</Label>
+                  <Input
+                    id="startTime"
+                    type="time"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="endTime">End Time</Label>
+                  <Input
+                    id="endTime"
+                    type="time"
+                    value={endTime}
+                    onChange={(e) => setEndTime(e.target.value)}
                   />
                 </div>
               </div>

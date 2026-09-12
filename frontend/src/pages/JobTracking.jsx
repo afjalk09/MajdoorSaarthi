@@ -238,6 +238,17 @@ export default function JobTracking() {
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <span>{job.workersNeeded} workers needed</span>
               </div>
+              {(job.startDate || job.startTime) && (
+                <div className="flex items-center gap-2 col-span-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    {job.startDate && new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {job.startDate && job.endDate && ` – ${new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
+                    {job.startDate && job.startTime && ' | '}
+                    {job.startTime && `${job.startTime} – ${job.endTime || '?'}`}
+                  </span>
+                </div>
+              )}
             </div>
 
             {job.jobRoles && job.jobRoles.length > 0 && (

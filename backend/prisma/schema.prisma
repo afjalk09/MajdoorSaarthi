@@ -167,6 +167,10 @@ model Job {
   wageAmount     Float
   wageType       WageType
   durationDays   Int?
+  startDate      DateTime?
+  endDate        DateTime?
+  startTime      String?
+  endTime        String?
   status         JobStatus  @default(OPEN)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt

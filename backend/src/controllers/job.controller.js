@@ -83,7 +83,8 @@ exports.createJob = async (req, res, next) => {
     const {
       title, description, role_requirements,
       location_lat, location_lng, location_text,
-      wage_amount, wage_type, duration_days
+      wage_amount, wage_type, duration_days,
+      start_date, end_date, start_time, end_time
     } = req.body;
 
     if (!title || !wage_amount || !wage_type) {
@@ -116,6 +117,10 @@ exports.createJob = async (req, res, next) => {
         wageAmount: parseFloat(wage_amount),
         wageType: wage_type.toUpperCase(),
         durationDays: duration_days ? parseInt(duration_days) : null,
+        startDate: start_date ? new Date(start_date) : null,
+        endDate: end_date ? new Date(end_date) : null,
+        startTime: start_time || null,
+        endTime: end_time || null,
         jobRoles: {
           create: role_requirements.map(r => ({
             roleName: r.roleName,
@@ -138,12 +143,15 @@ exports.createJob = async (req, res, next) => {
 
     if (locationWorkers.length > 0) {
       const skillsLabel = requiredSkills.length > 0 ? ` Looking for: ${requiredSkills.join(', ')}.` : '';
+      const scheduleLabel = job.startDate
+        ? ` Starts: ${job.startDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}${job.startTime ? `, ${job.startTime}–${job.endTime || '?'}` : ''}.`
+        : '';
       await Promise.all(locationWorkers.map(worker =>
         createNotification(
           worker.userId,
           'JOB_POSTED',
           'New Job For You',
-          `New job "${job.title}" has been posted${job.locationText ? ` in ${job.locationText}` : ''}.${skillsLabel} Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
+          `New job "${job.title}" has been posted${job.locationText ? ` in ${job.locationText}` : ''}.${skillsLabel}${scheduleLabel} Wage: ₹${job.wageAmount}/${job.wageType.toLowerCase()}`,
           job.id
         )
       ));
@@ -326,7 +334,8 @@ exports.updateJob = async (req, res, next) => {
     const {
       title, description, role_requirements,
       location_lat, location_lng, location_text,
-      wage_amount, wage_type, duration_days
+      wage_amount, wage_type, duration_days,
+      start_date, end_date, start_time, end_time
     } = req.body;
 
     const job = await prisma.job.findUnique({ where: { id } });
@@ -364,7 +373,11 @@ exports.updateJob = async (req, res, next) => {
         locationText: location_text,
         wageAmount: wage_amount ? parseFloat(wage_amount) : job.wageAmount,
         wageType: wage_type ? wage_type.toUpperCase() : job.wageType,
-        durationDays: duration_days ? parseInt(duration_days) : job.durationDays
+        durationDays: duration_days ? parseInt(duration_days) : job.durationDays,
+        startDate: start_date !== undefined ? (start_date ? new Date(start_date) : null) : job.startDate,
+        endDate: end_date !== undefined ? (end_date ? new Date(end_date) : null) : job.endDate,
+        startTime: start_time !== undefined ? (start_time || null) : job.startTime,
+        endTime: end_time !== undefined ? (end_time || null) : job.endTime
       }
     });
 
@@ -667,6 +680,20 @@ exports.hireWorker = async (req, res, next) => {
     }
     if (remainingById[assignedRoleId] <= 0) {
       return res.status(400).json({ success: false, message: 'Role already fully filled' });
+    }
+
+    // Verify worker has at least one skill required for this role
+    const assignedRole = job.jobRoles.find(r => r.id === assignedRoleId);
+    if (assignedRole) {
+      const workerSkills = worker.skills || [];
+      const roleSkills = assignedRole.skills || [];
+      const hasMatchingSkill = roleSkills.length === 0 || workerSkills.some(s => roleSkills.includes(s));
+      if (!hasMatchingSkill) {
+        return res.status(400).json({
+          success: false,
+          message: `Worker doesn't have the skills required for ${assignedRole.roleName}`
+        });
+      }
     }
 
     let application;

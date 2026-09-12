@@ -29,6 +29,20 @@ const WorkerDashboard = () => {
   const [applyRoleId, setApplyRoleId] = useState('');
   const [applying, setApplying] = useState(false);
 
+  const formatSchedule = (job) => {
+    if (!job?.startDate && !job?.startTime) return null;
+    const parts = [];
+    if (job.startDate) {
+      const start = new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      const end = job.endDate ? new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+      parts.push(end && end !== start ? `${start} – ${end}` : start);
+    }
+    if (job.startTime) {
+      parts.push(`${job.startTime} – ${job.endTime || '?'}`);
+    }
+    return parts.join(' | ');
+  };
+
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [skillFilter, setSkillFilter] = useState('');
@@ -379,6 +393,12 @@ const WorkerDashboard = () => {
                       ))}
                     </div>
 
+                    {formatSchedule(job) && (
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Schedule: {formatSchedule(job)}
+                      </p>
+                    )}
+
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">
                         Workers: {job.workersNeeded} | Duration: {job.durationDays} days
@@ -435,6 +455,11 @@ const WorkerDashboard = () => {
                         </span>
                         {app.job && ` • ₹${app.job.wageAmount}/${app.job.wageType}`}
                       </div>
+                      {formatSchedule(app.job) && (
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Schedule: {formatSchedule(app.job)}
+                        </p>
+                      )}
                       <div className="flex gap-2 mt-4">
                         {app.status === 'OFFERED' && (
                           <>
