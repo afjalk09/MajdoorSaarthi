@@ -46,10 +46,21 @@ const WorkerDashboard = () => {
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [skillFilter, setSkillFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [roleOptions, setRoleOptions] = useState([]);
   const [wageTypeFilter, setWageTypeFilter] = useState('');
   const [minWage, setMinWage] = useState('');
   const [maxWage, setMaxWage] = useState('');
-  const [sortBy, setSortBy] = useState('newest');
+  const [sortBy, setSortBy] = useState('best-match');
+
+  const fetchRoles = async () => {
+    try {
+      const res = await api.get('/roles');
+      setRoleOptions(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load roles', err);
+    }
+  };
 
   const allSkills = useMemo(() => {
     const set = new Set();
@@ -74,6 +85,12 @@ const WorkerDashboard = () => {
       );
     }
 
+    if (roleFilter) {
+      result = result.filter(j =>
+        j.jobRoles?.some(r => r.roleName.toLowerCase() === roleFilter.toLowerCase())
+      );
+    }
+
     if (wageTypeFilter) {
       result = result.filter(j => j.wageType === wageTypeFilter);
     }
@@ -95,28 +112,39 @@ const WorkerDashboard = () => {
       case 'wage-low':
         result.sort((a, b) => (a.wageAmount || 0) - (b.wageAmount || 0));
         break;
-      case 'newest':
+      case 'best-match':
       default:
+        // Role-matched jobs first (server marks them via matchedRoles), then newest.
+        result.sort((a, b) => {
+          const aMatch = (a.matchedRoles?.length || 0) > 0 ? 1 : 0;
+          const bMatch = (b.matchedRoles?.length || 0) > 0 ? 1 : 0;
+          if (aMatch !== bMatch) return bMatch - aMatch;
+          return new Date(b.createdAt) - new Date(a.createdAt);
+        });
+        break;
+      case 'newest':
         result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         break;
     }
 
     return result;
-  }, [jobs, searchQuery, skillFilter, wageTypeFilter, minWage, maxWage, sortBy]);
+  }, [jobs, searchQuery, skillFilter, roleFilter, wageTypeFilter, minWage, maxWage, sortBy]);
 
   const resetFilters = () => {
     setSearchQuery('');
     setSkillFilter('');
+    setRoleFilter('');
     setWageTypeFilter('');
     setMinWage('');
     setMaxWage('');
-    setSortBy('newest');
+    setSortBy('best-match');
   };
 
   const historyJobs = applications.filter(app => app.job?.status === 'COMPLETED');
 
   useEffect(() => {
     fetchData();
+    fetchRoles();
     const onNewNotification = () => fetchData();
     socket.on('notification:new', onNewNotification);
     return () => socket.off('notification:new', onNewNotification);
@@ -303,6 +331,17 @@ const WorkerDashboard = () => {
                       </SelectContent>
                     </Select>
 
+                    <Select value={roleFilter} onValueChange={setRoleFilter}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="All Roles" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roleOptions.map(r => (
+                          <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
                     <Select value={wageTypeFilter} onValueChange={setWageTypeFilter}>
                       <SelectTrigger>
                         <SelectValue placeholder="All Wage Types" />
@@ -333,6 +372,7 @@ const WorkerDashboard = () => {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="best-match">Best For My Role</SelectItem>
                           <SelectItem value="newest">Newest First</SelectItem>
                           <SelectItem value="wage-high">Wage: High → Low</SelectItem>
                           <SelectItem value="wage-low">Wage: Low → High</SelectItem>
@@ -370,7 +410,14 @@ const WorkerDashboard = () => {
                           {job.locationText || 'Location not specified'}
                         </CardDescription>
                       </div>
-                      <Badge>₹{job.wageAmount}/{job.wageType}</Badge>
+                      <div className="flex items-center gap-2">
+                        {job.matchedRoles?.length > 0 && (
+                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                            Fits your role
+                          </Badge>
+                        )}
+                        <Badge>₹{job.wageAmount}/{job.wageType}</Badge>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>

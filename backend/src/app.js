@@ -34,6 +34,7 @@ app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/milestones', require('./routes/milestone.routes'));
 app.use('/api/disputes', require('./routes/dispute.routes'));
 app.use('/api/reviews', require('./routes/review.routes'));
+app.use('/api/roles', require('./routes/role.routes'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

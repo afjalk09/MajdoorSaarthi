@@ -18,6 +18,9 @@ const WorkerProfile = () => {
 
   const [fullName, setFullName] = useState('');
   const [skills, setSkills] = useState('');
+  const [roles, setRoles] = useState([]);
+  const [customRole, setCustomRole] = useState('');
+  const [roleList, setRoleList] = useState([]);
   const [experience, setExperience] = useState('');
   const [location, setLocation] = useState('');
   const [wageMin, setWageMin] = useState('');
@@ -26,7 +29,34 @@ const WorkerProfile = () => {
 
   useEffect(() => {
     fetchProfile();
+    fetchRoles();
   }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const res = await api.get('/roles');
+      setRoleList(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load roles', err);
+    }
+  };
+
+  const toggleRole = (roleName) => {
+    setRoles(prev =>
+      prev.includes(roleName)
+        ? prev.filter(r => r !== roleName)
+        : [...prev, roleName]
+    );
+  };
+
+  const addCustomRole = () => {
+    const name = customRole.trim();
+    if (!name) return;
+    if (!roles.includes(name)) {
+      setRoles(prev => [...prev, name]);
+    }
+    setCustomRole('');
+  };
 
   const fetchProfile = async () => {
     try {
@@ -35,6 +65,7 @@ const WorkerProfile = () => {
       setProfile(p);
       setFullName(p.fullName || '');
       setSkills(p.skills?.join(', ') || '');
+      setRoles(p.roles || []);
       setExperience(p.experienceYears || '');
       setLocation(p.locationText || '');
       setWageMin(p.expectedWageMin || '');
@@ -58,6 +89,7 @@ const WorkerProfile = () => {
       const res = await api.put('/worker/profile', {
         full_name: fullName,
         skills: skills.split(',').map(s => s.trim()).filter(s => s),
+        roles,
         experience_years: parseInt(experience) || 0,
         location_text: location,
         expected_wage_min: parseFloat(wageMin) || 0,
@@ -76,6 +108,7 @@ const WorkerProfile = () => {
     if (profile) {
       setFullName(profile.fullName || '');
       setSkills(profile.skills?.join(', ') || '');
+      setRoles(profile.roles || []);
       setExperience(profile.experienceYears || '');
       setLocation(profile.locationText || '');
       setWageMin(profile.expectedWageMin || '');
@@ -166,18 +199,34 @@ const WorkerProfile = () => {
                 </div>
               </div>
 
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-2">Skills</p>
-                <div className="flex flex-wrap gap-2">
-                  {profile?.skills?.length > 0 ? (
-                    profile.skills.map((skill, i) => (
-                      <Badge key={i} variant="secondary">{skill}</Badge>
-                    ))
-                  ) : (
-                    <p className="text-base text-muted-foreground">No skills added</p>
-                  )}
+<div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Skills</p>
+                  <div className="flex flex-wrap gap-2">
+                    {profile?.skills?.length > 0 ? (
+                      profile.skills.map((skill, i) => (
+                        <Badge key={i} variant="secondary">{skill}</Badge>
+                      ))
+                    ) : (
+                      <p className="text-base text-muted-foreground">No skills added</p>
+                    )}
+                  </div>
                 </div>
-              </div>
+
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground mb-2">Roles</p>
+                  <div className="flex flex-wrap gap-2">
+                    {profile?.roles?.length > 0 ? (
+                      profile.roles.map((role, i) => (
+                        <Badge key={i} className="bg-green-100 text-green-800 hover:bg-green-100">{role}</Badge>
+                      ))
+                    ) : (
+                      <p className="text-base text-muted-foreground">No roles selected</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Your role is used to rank matching jobs in your feed.
+                  </p>
+                </div>
             </CardContent>
           </Card>
         ) : (
@@ -271,6 +320,64 @@ const WorkerProfile = () => {
                     onChange={(e) => setSkills(e.target.value)}
                     placeholder="plumbing, electrical, carpentry"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Roles (select all that apply)</Label>
+                  <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto rounded-md border p-3">
+                    {roleList.length > 0 ? (
+                      roleList.map(role => {
+                        const active = roles.includes(role.name);
+                        return (
+                          <button
+                            key={role.id}
+                            type="button"
+                            onClick={() => toggleRole(role.name)}
+                            className={`inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+                              active
+                                ? 'bg-green-600 text-white border-green-600'
+                                : 'bg-white text-foreground border-input hover:bg-accent'
+                            }`}
+                          >
+                            {role.name}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Loading roles...</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs">Custom Role</Label>
+                      <Input
+                        value={customRole}
+                        onChange={(e) => setCustomRole(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomRole(); } }}
+                        placeholder="Type your own role..."
+                      />
+                    </div>
+                    <Button type="button" variant="outline" onClick={addCustomRole} className="shrink-0">
+                      Add
+                    </Button>
+                  </div>
+                  {roles.some(r => !roleList.some(t => t.name === r)) && (
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {roles.filter(r => !roleList.some(t => t.name === r)).map(r => (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => toggleRole(r)}
+                          className="inline-flex items-center rounded-full border border-orange-300 bg-orange-50 px-3 py-1 text-sm font-medium text-orange-800 hover:bg-orange-100"
+                        >
+                          {r} ×
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    Jobs matching your role are shown first in your feed.
+                  </p>
                 </div>
 
                 <div className="flex justify-end gap-2">

@@ -22,11 +22,15 @@ const BrowseWorkers = () => {
   // Filters
   const [search, setSearch] = useState('');
   const [skill, setSkill] = useState('');
+  const [role, setRole] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
 
   // Skills dropdown
   const [availableSkills, setAvailableSkills] = useState([]);
+
+  // Role taxonomy dropdown
+  const [roleOptions, setRoleOptions] = useState([]);
 
   // Job context for role selection
   const [job, setJob] = useState(null);
@@ -40,7 +44,17 @@ const BrowseWorkers = () => {
 
   useEffect(() => {
     fetchSkills();
+    fetchRoles();
   }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const res = await api.get('/roles');
+      setRoleOptions(res.data.data || []);
+    } catch (err) {
+      // Non-critical — role filter won't show
+    }
+  };
 
   useEffect(() => {
     if (jobId) fetchJob();
@@ -77,6 +91,7 @@ const BrowseWorkers = () => {
       if (jobId) params.set('job_id', jobId);
       if (search.trim()) params.set('search', search.trim());
       if (skill.trim()) params.set('skill', skill.trim());
+      if (role.trim()) params.set('role', role.trim());
 
       const res = await api.get(`/employer/workers?${params.toString()}`);
       setWorkers(res.data.data || []);
@@ -97,6 +112,7 @@ const BrowseWorkers = () => {
   const handleReset = () => {
     setSearch('');
     setSkill('');
+    setRole('');
     setPage(1);
   };
 
@@ -212,6 +228,20 @@ const BrowseWorkers = () => {
                   ))}
                 </datalist>
               </div>
+              <div className="flex-1 space-y-1">
+                <Label htmlFor="role">Filter by role</Label>
+                <select
+                  id="role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">All roles</option>
+                  {roleOptions.map(r => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="flex gap-2">
                 <Button type="submit">Filter</Button>
                 <Button type="button" variant="outline" onClick={handleReset}>Reset</Button>
@@ -252,6 +282,13 @@ const BrowseWorkers = () => {
                     </div>
 
                     <div className="flex flex-wrap gap-1 mb-3">
+                      {(worker.roles || []).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mr-1">
+                          {(worker.roles || []).map((r, i) => (
+                            <Badge key={i} className="bg-green-100 text-green-800 hover:bg-green-100 text-xs">{r}</Badge>
+                          ))}
+                        </div>
+                      )}
                       {(worker.skills || []).map((s, i) => (
                         <Badge
                           key={i}

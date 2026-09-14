@@ -12,6 +12,7 @@ import NotificationBell from '@/components/NotificationBell';
 import { showSuccess, showError } from '@/lib/toast';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
+import RoleSelect from '@/components/RoleSelect';
 
 const EmployerDashboard = () => {
   const { user, logout } = useAuth();
@@ -34,6 +35,7 @@ const EmployerDashboard = () => {
   const [roleRequirements, setRoleRequirements] = useState([
     { roleName: '', skills: '', count: 1 }
   ]);
+  const [roleList, setRoleList] = useState([]);
 
   // Match modal
   const [selectedJob, setSelectedJob] = useState(null);
@@ -75,10 +77,20 @@ const EmployerDashboard = () => {
 
   useEffect(() => {
     fetchData();
+    fetchRoles();
     const onNewNotification = () => fetchData();
     socket.on('notification:new', onNewNotification);
     return () => socket.off('notification:new', onNewNotification);
   }, []);
+
+  const fetchRoles = async () => {
+    try {
+      const res = await api.get('/roles');
+      setRoleList(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load roles', err);
+    }
+  };
 
   const activeJobs = jobs.filter(j => j.status !== 'COMPLETED');
   const historyJobs = jobs.filter(j => j.status === 'COMPLETED');
@@ -137,6 +149,13 @@ const EmployerDashboard = () => {
   const updateRole = (index, field, value) => {
     const updated = [...roleRequirements];
     updated[index] = { ...updated[index], [field]: value };
+    // When a taxonomy role is picked and skills are empty, autofill from the taxonomy.
+    if (field === 'roleName' && value.trim()) {
+      const taxonomyRole = roleList.find(r => r.name.toLowerCase() === value.toLowerCase());
+      if (taxonomyRole && (!updated[index].skills || !updated[index].skills.trim())) {
+        updated[index].skills = (taxonomyRole.skills || []).join(', ');
+      }
+    }
     setRoleRequirements(updated);
   };
 
@@ -436,10 +455,11 @@ const EmployerDashboard = () => {
                     <div key={index} className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
                       <div className="col-span-4 space-y-1">
                         <Label className="text-xs">Role Name</Label>
-                        <Input
+                        <RoleSelect
                           value={role.roleName}
-                          onChange={(e) => updateRole(index, 'roleName', e.target.value)}
-                          placeholder="e.g., Carpenter"
+                          onChange={(val) => updateRole(index, 'roleName', val)}
+                          roles={roleList}
+                          placeholder="Type to search a role"
                         />
                       </div>
                       <div className="col-span-5 space-y-1">

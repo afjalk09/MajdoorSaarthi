@@ -1,6 +1,7 @@
 const prisma = require('../lib/prisma');
 const { createNotification } = require('./notification.controller');
 const { releaseWorkerFromJob, recomputeJobFill } = require('./job.controller');
+const roleService = require('../services/role.service');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -21,9 +22,25 @@ exports.getProfile = async (req, res, next) => {
 exports.updateProfile = async (req, res, next) => {
   try {
     const {
-      full_name, skills, experience_years, location_lat, location_lng,
+      full_name, skills, roles, experience_years, location_lat, location_lng,
       location_text, availability, expected_wage_min, expected_wage_max, wage_type
     } = req.body;
+
+    // Accept roles from the taxonomy OR manually added custom roles. Taxonomy
+    // names are canonicalized; custom names pass through (max 50 chars each).
+    let validatedRoles;
+    if (roles !== undefined) {
+      if (!Array.isArray(roles)) {
+        return res.status(400).json({ success: false, message: 'roles must be an array' });
+      }
+      const allRoles = await prisma.workerRole.findMany({ where: { active: true } });
+      const uniqueRoles = [...new Set(roles.map(r => (r || '').trim()).filter(Boolean))];
+      const cleaned = uniqueRoles
+        .slice(0, 10)
+        .map(r => (r.length > 50 ? r.slice(0, 50) : r))
+        .map(r => roleService.canonicalRoleName(allRoles, r) || r);
+      validatedRoles = [...new Set(cleaned)];
+    }
 
     const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
 
@@ -33,6 +50,7 @@ exports.updateProfile = async (req, res, next) => {
           userId: req.user.id,
           fullName: full_name,
           skills: skills || [],
+          roles: validatedRoles || [],
           experienceYears: experience_years || 0,
           locationLat: location_lat,
           locationLng: location_lng,
@@ -51,6 +69,7 @@ exports.updateProfile = async (req, res, next) => {
       data: {
         fullName: full_name,
         skills: skills || [],
+        ...(validatedRoles !== undefined ? { roles: validatedRoles } : {}),
         experienceYears: experience_years || 0,
         locationLat: location_lat,
         locationLng: location_lng,
@@ -91,6 +110,8 @@ exports.uploadDocument = async (req, res, next) => {
 
 exports.getAvailableJobs = async (req, res, next) => {
   try {
+    const { role } = req.query;
+
     const profile = await prisma.workerProfile.findUnique({ where: { userId: req.user.id } });
 
     if (!profile) {
@@ -98,6 +119,11 @@ exports.getAvailableJobs = async (req, res, next) => {
     }
 
     const where = { status: 'OPEN' };
+
+    // Filter by taxonomy role name (matches any of the job's role requirements)
+    if (role && role.trim()) {
+      where.jobRoles = { some: { roleName: { equals: role.trim(), mode: 'insensitive' } } };
+    }
 
     // Match by location text (case-insensitive). Jobs without a location are visible to all.
     const workerLocation = (profile.locationText || '').trim();
@@ -112,6 +138,27 @@ exports.getAvailableJobs = async (req, res, next) => {
       where,
       include: { employer: true, jobRoles: true },
       orderBy: { createdAt: 'desc' }
+    });
+
+    // Role-aware sort: jobs the worker's profile roles match are shown first, then by recency.
+    const workerRoles = (profile.roles || []).map(r => r.toLowerCase());
+    const roleMatched = new Set();
+    jobs.forEach(job => {
+      const matches = (job.jobRoles || []).filter(r =>
+        workerRoles.includes((r.roleName || '').toLowerCase())
+      );
+      if (matches.length > 0) {
+        roleMatched.add(job.id);
+        const roleNames = matches.map(r => r.roleName);
+        job.matchedRoles = [...new Set(roleNames)];
+      }
+    });
+
+    jobs.sort((a, b) => {
+      const aMatched = roleMatched.has(a.id) ? 1 : 0;
+      const bMatched = roleMatched.has(b.id) ? 1 : 0;
+      if (aMatched !== bMatched) return bMatched - aMatched;
+      return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
     res.json({ success: true, data: jobs });

@@ -88,7 +88,7 @@ exports.uploadDocument = async (req, res, next) => {
 
 exports.getWorkersByLocation = async (req, res, next) => {
   try {
-    const { job_id, search, skill, page = 1, limit = 20 } = req.query;
+    const { job_id, search, skill, role, page = 1, limit = 20 } = req.query;
 
     let locationText = null;
     let jobSkills = [];
@@ -114,6 +114,10 @@ exports.getWorkersByLocation = async (req, res, next) => {
 
     if (skill && skill.trim()) {
       where.skills = { has: skill.trim() };
+    }
+
+    if (role && role.trim()) {
+      where.roles = { has: role.trim() };
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);

@@ -1,6 +1,42 @@
 const prisma = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { createNotification } = require('./notification.controller');
+const roleService = require('../services/role.service');
+
+// Validate role requirements against the taxonomy and autofill skills from the
+// taxonomy's defaults when a role doesn't declare its own. Returns the cleaned
+// requirements array, or null if validation failed (caller sends the error).
+const prepareRoleRequirements = async (roleRequirements) => {
+  if (!Array.isArray(roleRequirements) || roleRequirements.length === 0) {
+    return { error: 'At least one role requirement is needed' };
+  }
+
+  const roles = await prisma.workerRole.findMany({ where: { active: true } });
+
+  const cleaned = [];
+  for (const req of roleRequirements) {
+    const rawName = (req.roleName || '').trim();
+    if (!rawName) {
+      return { error: 'Each role requirement needs a role name' };
+    }
+
+    const canonical = roleService.canonicalRoleName(roles, rawName);
+    if (!canonical) {
+      return { error: `Unknown role "${rawName}". Choose a role from the list.` };
+    }
+
+    const taxonomy = roles.find(r => r.name === canonical);
+    cleaned.push({
+      roleName: canonical,
+      skills: (req.skills && req.skills.length > 0)
+        ? req.skills
+        : (taxonomy?.skills || []),
+      count: req.count || 1
+    });
+  }
+
+  return { cleaned };
+};
 
 // Release a worker from a job (worker cancels / employer removes).
 // Keeps application status, worker availability, role fill counts and job status consistent.
@@ -95,14 +131,20 @@ exports.createJob = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'At least one role requirement is needed' });
     }
 
+    const prepared = await prepareRoleRequirements(role_requirements);
+    if (prepared.error) {
+      return res.status(400).json({ success: false, message: prepared.error });
+    }
+    const roleRequirements = prepared.cleaned;
+
     const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
     if (!employer) {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
     // Compute workersNeeded and requiredSkills from role_requirements
-    const workersNeeded = role_requirements.reduce((sum, r) => sum + (r.count || 1), 0);
-    const requiredSkills = [...new Set(role_requirements.flatMap(r => r.skills || []))];
+    const workersNeeded = roleRequirements.reduce((sum, r) => sum + (r.count || 1), 0);
+    const requiredSkills = [...new Set(roleRequirements.flatMap(r => r.skills || []))];
 
     const job = await prisma.job.create({
       data: {
@@ -122,7 +164,7 @@ exports.createJob = async (req, res, next) => {
         startTime: start_time || null,
         endTime: end_time || null,
         jobRoles: {
-          create: role_requirements.map(r => ({
+          create: roleRequirements.map(r => ({
             roleName: r.roleName,
             skills: r.skills || [],
             count: r.count || 1
@@ -253,6 +295,9 @@ exports.getJobById = async (req, res, next) => {
       }
     });
 
+    const roleNameById = {};
+    job.jobRoles.forEach(role => { roleNameById[role.id] = role.roleName; });
+
     const jobRoles = job.jobRoles.map(role => {
       const offeredCount = (role.applications || []).filter(a => a.status === 'OFFERED').length;
       const hiredCount = ((role.applications || []).length) - offeredCount;
@@ -265,7 +310,7 @@ exports.getJobById = async (req, res, next) => {
       };
     });
 
-    // Unique hired workers with user id + name (used for ratings/feedback)
+    // Unique hired workers with user id + name + role (used for ratings/feedback + per-worker tracking)
     const hiredWorkers = [...new Map(
       job.applications
         .filter(a => a.worker)
@@ -275,7 +320,9 @@ exports.getJobById = async (req, res, next) => {
           fullName: a.worker.fullName,
           skills: a.worker.skills,
           workStatus: a.workStatus,
-          workNote: a.workNote
+          workNote: a.workNote,
+          jobRoleId: a.jobRoleId || null,
+          roleName: (a.jobRoleId && roleNameById[a.jobRoleId]) || null
         }])
     ).values()];
 
@@ -355,10 +402,16 @@ exports.updateJob = async (req, res, next) => {
     // Compute workersNeeded and requiredSkills from role_requirements
     let workersNeeded = job.workersNeeded;
     let requiredSkills = job.requiredSkills;
+    let roleRequirements = null;
 
     if (role_requirements && Array.isArray(role_requirements)) {
-      workersNeeded = role_requirements.reduce((sum, r) => sum + (r.count || 1), 0);
-      requiredSkills = [...new Set(role_requirements.flatMap(r => r.skills || []))];
+      const prepared = await prepareRoleRequirements(role_requirements);
+      if (prepared.error) {
+        return res.status(400).json({ success: false, message: prepared.error });
+      }
+      roleRequirements = prepared.cleaned;
+      workersNeeded = roleRequirements.reduce((sum, r) => sum + (r.count || 1), 0);
+      requiredSkills = [...new Set(roleRequirements.flatMap(r => r.skills || []))];
     }
 
     const updatedJob = await prisma.job.update({
@@ -382,14 +435,14 @@ exports.updateJob = async (req, res, next) => {
     });
 
     // Update role requirements if provided
-    if (role_requirements && Array.isArray(role_requirements)) {
+    if (roleRequirements) {
       // Delete existing roles
       await prisma.jobRole.deleteMany({ where: { jobId: id } });
 
       // Create new roles
-      if (role_requirements.length > 0) {
+      if (roleRequirements.length > 0) {
         await prisma.jobRole.createMany({
-          data: role_requirements.map(r => ({
+          data: roleRequirements.map(r => ({
             jobId: id,
             roleName: r.roleName,
             skills: r.skills || [],
@@ -538,15 +591,21 @@ exports.getMatches = async (req, res, next) => {
     // For each match, determine which role they best fit
     const matchesWithRoles = matches.map(match => {
       let bestRole = null;
-      let bestScore = 0;
+      let bestScore = -1;
+      const workerRoles = (match.roles || []).map(r => r.toLowerCase());
 
       for (const role of job.jobRoles) {
         if (remainingById[role.id] <= 0) continue; // Role has no real space left
 
+        const matchesWorkerRole = workerRoles.includes((role.roleName || '').toLowerCase());
+
         const workerSkills = match.skills || [];
         const roleSkills = role.skills || [];
         const matchedSkills = workerSkills.filter(s => roleSkills.includes(s));
-        const score = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+        const skillScore = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+
+        // A role the worker is registered for wins over a pure skill overlap.
+        const score = matchesWorkerRole ? 1 + skillScore : skillScore;
 
         if (score > bestScore) {
           bestScore = score;
@@ -628,17 +687,25 @@ exports.hireWorker = async (req, res, next) => {
     }
 
     if (!assignedRoleId) {
-      // Auto-assign based on worker skills matching role skills (only roles with real space)
+      // Auto-assign based on worker's profile roles first, then skill match
+      // (only roles with real space). A worker's taxonomy roles take priority.
+      const workerRoles = (worker.roles || []).map(r => r.toLowerCase());
+
       let bestRole = null;
-      let bestScore = 0;
+      let bestScore = -1;
 
       for (const role of job.jobRoles) {
         if (remainingById[role.id] <= 0) continue;
 
+        const matchesWorkerRole = workerRoles.includes((role.roleName || '').toLowerCase());
+
         const workerSkills = worker.skills || [];
         const roleSkills = role.skills || [];
         const matchedSkills = workerSkills.filter(s => roleSkills.includes(s));
-        const score = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+        const skillScore = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
+
+        // Profile-role match always wins over a pure skill overlap on an unrelated role.
+        const score = matchesWorkerRole ? 1 + skillScore : skillScore;
 
         if (score > bestScore) {
           bestScore = score;

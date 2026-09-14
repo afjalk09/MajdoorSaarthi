@@ -10,7 +10,10 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "node prisma/seed.js",
-    "prisma:backfill": "node prisma/backfillRoleAssignments.js"
+    "prisma:seedroles": "node prisma/seed-roles.js",
+    "prisma:backfill": "node prisma/backfillRoleAssignments.js",
+    "prisma:backfillroles": "node prisma/backfillWorkerRoles.js",
+    "prisma:backfillrolenames": "node prisma/backfillRoleNames.js"
   },
   "dependencies": {
     "@prisma/client": "^6.6.0",
