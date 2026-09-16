@@ -101,13 +101,9 @@ async function main() {
     if (canonical) {
       // Merge generic roles into the existing canonical role.
       const totalCount = genericRoles.reduce((sum, r) => sum + r.count, 0) + canonical.count;
-      const allSkills = [...new Set([
-        ...(canonical.skills || []),
-        ...genericRoles.flatMap(r => r.skills || [])
-      ])];
       await prisma.jobRole.update({
         where: { id: canonical.id },
-        data: { count: totalCount, skills: allSkills }
+        data: { count: totalCount }
       });
       for (const role of genericRoles) {
         await reassignAndDelete(job.id, role, canonical.id);
@@ -123,13 +119,9 @@ async function main() {
       const rest = genericRoles.slice(1);
       if (rest.length > 0) {
         const totalCount = canonical.count + rest.reduce((sum, r) => sum + r.count, 0);
-        const allSkills = [...new Set([
-          ...(canonical.skills || []),
-          ...rest.flatMap(r => r.skills || [])
-        ])];
         await prisma.jobRole.update({
           where: { id: canonical.id },
-          data: { count: totalCount, skills: allSkills }
+          data: { count: totalCount }
         });
         for (const role of rest) {
           await reassignAndDelete(job.id, role, canonical.id);

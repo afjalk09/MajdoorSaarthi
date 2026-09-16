@@ -68,11 +68,6 @@ const RoleSelect = ({ value, onChange, roles = [], placeholder = 'Select a role'
                 className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-accent text-left"
               >
                 {r.name}
-                {r.skills && r.skills.length > 0 && (
-                  <span className="text-xs text-muted-foreground truncate max-w-[55%] ml-2">
-                    {r.skills.slice(0, 3).join(', ')}
-                  </span>
-                )}
               </button>
             ))}
             {contains.map(r => (
@@ -83,9 +78,6 @@ const RoleSelect = ({ value, onChange, roles = [], placeholder = 'Select a role'
                 className="flex w-full items-center justify-between px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground text-left"
               >
                 {r.name}
-                {r.skills && r.skills.length > 0 && (
-                  <span className="text-xs truncate max-w-[55%] ml-2">{r.skills.slice(0, 3).join(', ')}</span>
-                )}
               </button>
             ))}
             {q && startsWith.length + contains.length === 0 && (

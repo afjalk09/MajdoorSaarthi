@@ -28,7 +28,7 @@ const EditJob = () => {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [roleRequirements, setRoleRequirements] = useState([
-    { roleName: '', skills: '', count: 1 }
+    { roleName: '', count: 1 }
   ]);
   const [roleList, setRoleList] = useState([]);
 
@@ -72,7 +72,6 @@ const EditJob = () => {
       if (job.jobRoles && job.jobRoles.length > 0) {
         setRoleRequirements(job.jobRoles.map(r => ({
           roleName: r.roleName,
-          skills: r.skills?.join(', ') || '',
           count: r.count
         })));
       }
@@ -84,7 +83,7 @@ const EditJob = () => {
   };
 
   const addRole = () => {
-    setRoleRequirements([...roleRequirements, { roleName: '', skills: '', count: 1 }]);
+    setRoleRequirements([...roleRequirements, { roleName: '', count: 1 }]);
   };
 
   const removeRole = (index) => {
@@ -95,13 +94,6 @@ const EditJob = () => {
   const updateRole = (index, field, value) => {
     const updated = [...roleRequirements];
     updated[index] = { ...updated[index], [field]: value };
-    // When a taxonomy role is picked and skills are empty, autofill from the taxonomy.
-    if (field === 'roleName' && value.trim()) {
-      const taxonomyRole = roleList.find(r => r.name.toLowerCase() === value.toLowerCase());
-      if (taxonomyRole && (!updated[index].skills || !updated[index].skills.trim())) {
-        updated[index].skills = (taxonomyRole.skills || []).join(', ');
-      }
-    }
     setRoleRequirements(updated);
   };
 
@@ -113,7 +105,6 @@ const EditJob = () => {
       .filter(r => r.roleName.trim())
       .map(r => ({
         roleName: r.roleName.trim(),
-        skills: r.skills.split(',').map(s => s.trim()).filter(s => s),
         count: parseInt(r.count) || 1
       }));
 
@@ -297,7 +288,7 @@ const EditJob = () => {
 
                 {roleRequirements.map((role, index) => (
                   <div key={index} className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
-                    <div className="col-span-4 space-y-1">
+                    <div className="col-span-7 space-y-1">
                       <Label className="text-xs">Role Name</Label>
                       <RoleSelect
                         value={role.roleName}
@@ -306,15 +297,7 @@ const EditJob = () => {
                         placeholder="Type to search a role"
                       />
                     </div>
-                    <div className="col-span-5 space-y-1">
-                      <Label className="text-xs">Skills (comma separated)</Label>
-                      <Input
-                        value={role.skills}
-                        onChange={(e) => updateRole(index, 'skills', e.target.value)}
-                        placeholder="carpentry, woodworking"
-                      />
-                    </div>
-                    <div className="col-span-2 space-y-1">
+                    <div className="col-span-4 space-y-1">
                       <Label className="text-xs">Count</Label>
                       <Input
                         type="number"

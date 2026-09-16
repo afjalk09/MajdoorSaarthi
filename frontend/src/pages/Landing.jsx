@@ -43,7 +43,7 @@ const Landing = () => {
               </div>
               <CardTitle>For Workers</CardTitle>
               <CardDescription>
-                Create your profile, showcase your skills, and get matched with jobs that fit your expertise and location.
+                Create your profile, pick your roles, and get matched with jobs that fit your expertise and location.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -71,7 +71,7 @@ const Landing = () => {
               </div>
               <CardTitle>AI Matching</CardTitle>
               <CardDescription>
-                Our intelligent algorithm considers skills, experience, location, and wages to find the perfect match.
+                Our intelligent algorithm considers roles, experience, location, and wages to find the perfect match.
               </CardDescription>
             </CardHeader>
           </Card>

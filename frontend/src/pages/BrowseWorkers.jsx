@@ -21,13 +21,9 @@ const BrowseWorkers = () => {
 
   // Filters
   const [search, setSearch] = useState('');
-  const [skill, setSkill] = useState('');
   const [role, setRole] = useState('');
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 });
-
-  // Skills dropdown
-  const [availableSkills, setAvailableSkills] = useState([]);
 
   // Role taxonomy dropdown
   const [roleOptions, setRoleOptions] = useState([]);
@@ -43,7 +39,6 @@ const BrowseWorkers = () => {
   };
 
   useEffect(() => {
-    fetchSkills();
     fetchRoles();
   }, []);
 
@@ -64,15 +59,6 @@ const BrowseWorkers = () => {
     fetchWorkers();
   }, [page, jobId]);
 
-  const fetchSkills = async () => {
-    try {
-      const res = await api.get('/employer/skills');
-      setAvailableSkills(res.data.data || []);
-    } catch (err) {
-      // Non-critical — skill suggestions won't show
-    }
-  };
-
   const fetchJob = async () => {
     try {
       const res = await api.get(`/jobs/${jobId}`);
@@ -90,7 +76,6 @@ const BrowseWorkers = () => {
       params.set('limit', 20);
       if (jobId) params.set('job_id', jobId);
       if (search.trim()) params.set('search', search.trim());
-      if (skill.trim()) params.set('skill', skill.trim());
       if (role.trim()) params.set('role', role.trim());
 
       const res = await api.get(`/employer/workers?${params.toString()}`);
@@ -111,7 +96,6 @@ const BrowseWorkers = () => {
 
   const handleReset = () => {
     setSearch('');
-    setSkill('');
     setRole('');
     setPage(1);
   };
@@ -212,23 +196,6 @@ const BrowseWorkers = () => {
                 />
               </div>
               <div className="flex-1 space-y-1">
-                <Label htmlFor="skill">Filter by skill</Label>
-                <input
-                  id="skill"
-                  type="text"
-                  list="skills-list"
-                  placeholder="Type or select a skill..."
-                  value={skill}
-                  onChange={(e) => setSkill(e.target.value)}
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-                <datalist id="skills-list">
-                  {availableSkills.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
-              </div>
-              <div className="flex-1 space-y-1">
                 <Label htmlFor="role">Filter by role</Label>
                 <select
                   id="role"
@@ -271,9 +238,6 @@ const BrowseWorkers = () => {
                         <p className="text-sm text-muted-foreground">{worker.locationText}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {worker.skillMatch > 0 && (
-                          <Badge className="bg-green-600">{worker.skillMatch}% skill match</Badge>
-                        )}
                         {worker.isVerified && (
                           <Badge variant="outline" className="border-green-500 text-green-600">Verified</Badge>
                         )}
@@ -289,15 +253,6 @@ const BrowseWorkers = () => {
                           ))}
                         </div>
                       )}
-                      {(worker.skills || []).map((s, i) => (
-                        <Badge
-                          key={i}
-                          variant={worker.matchedSkills?.includes(s) ? 'default' : 'outline'}
-                          className="text-xs"
-                        >
-                          {s}
-                        </Badge>
-                      ))}
                     </div>
 
                     <p className="text-sm text-muted-foreground mb-3">

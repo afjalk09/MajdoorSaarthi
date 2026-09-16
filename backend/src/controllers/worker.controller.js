@@ -22,7 +22,7 @@ exports.getProfile = async (req, res, next) => {
 exports.updateProfile = async (req, res, next) => {
   try {
     const {
-      full_name, skills, roles, experience_years, location_lat, location_lng,
+      full_name, roles, experience_years, location_lat, location_lng,
       location_text, availability, expected_wage_min, expected_wage_max, wage_type
     } = req.body;
 
@@ -49,7 +49,6 @@ exports.updateProfile = async (req, res, next) => {
         data: {
           userId: req.user.id,
           fullName: full_name,
-          skills: skills || [],
           roles: validatedRoles || [],
           experienceYears: experience_years || 0,
           locationLat: location_lat,
@@ -68,7 +67,6 @@ exports.updateProfile = async (req, res, next) => {
       where: { userId: req.user.id },
       data: {
         fullName: full_name,
-        skills: skills || [],
         ...(validatedRoles !== undefined ? { roles: validatedRoles } : {}),
         experienceYears: experience_years || 0,
         locationLat: location_lat,
@@ -209,7 +207,7 @@ exports.applyToJob = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Already applied' });
     }
 
-    // Resolve the role the worker is applying for
+    // Resolve the role the worker is applying for (role-based, no skill gate)
     let appliedRoleId = jobRoleId;
 
     if (appliedRoleId) {
@@ -223,36 +221,35 @@ exports.applyToJob = async (req, res, next) => {
       if (role.applications.length >= role.count) {
         return res.status(400).json({ success: false, message: 'Role is already fully filled' });
       }
-
-      const workerSkills = profile.skills || [];
-      const roleSkills = role.skills || [];
-      const hasMatchingSkill = roleSkills.length === 0 || workerSkills.some(s => roleSkills.includes(s));
-      if (!hasMatchingSkill) {
-        return res.status(400).json({ success: false, message: 'You don\'t have the skills required for this role' });
-      }
     } else {
-      // Auto-pick the best matching role that still has space
-      let bestRole = null;
-      let bestScore = 0;
+      // Prefer a role the worker's profile matches, else the role with the most space.
+      const workerRoles = (profile.roles || []).map(r => r.toLowerCase());
 
       for (const role of job.jobRoles) {
         if (role.filledCount >= role.count) continue;
-
-        const workerSkills = profile.skills || [];
-        const roleSkills = role.skills || [];
-        const matchedSkills = workerSkills.filter(s => roleSkills.includes(s));
-        const score = roleSkills.length > 0 ? matchedSkills.length / roleSkills.length : 0;
-
-        if (score > bestScore) {
-          bestScore = score;
-          bestRole = role;
+        if (workerRoles.includes((role.roleName || '').toLowerCase())) {
+          appliedRoleId = role.id;
+          break;
         }
       }
 
-      if (bestRole) {
-        appliedRoleId = bestRole.id;
-      } else {
-        return res.status(400).json({ success: false, message: 'You don\'t have the required skills for this job' });
+      if (!appliedRoleId) {
+        let bestRole = null;
+        let bestRemaining = 0;
+        for (const role of job.jobRoles) {
+          const remaining = role.count - role.filledCount;
+          if (remaining > bestRemaining) {
+            bestRemaining = remaining;
+            bestRole = role;
+          }
+        }
+        if (bestRole) {
+          appliedRoleId = bestRole.id;
+        }
+      }
+
+      if (!appliedRoleId) {
+        return res.status(400).json({ success: false, message: 'No available slots in this job' });
       }
     }
 

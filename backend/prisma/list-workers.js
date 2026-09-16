@@ -12,7 +12,7 @@ async function main() {
         select: {
           fullName: true,
           locationText: true,
-          skills: true,
+          roles: true,
           isVerified: true,
           availability: true,
         },

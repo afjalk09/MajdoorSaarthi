@@ -1,43 +1,11 @@
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-// Assign roles[] to every worker by matching their skills against the taxonomy's default skills.
+// NOTE: Worker roles are no longer derived from skills — the skills concept was
+// removed from the platform (workers pick their own roles in their profile).
+// This historical backfill script is now a no-op.
 async function main() {
-  console.log("Backfilling worker roles from skills...\n");
-
-  const roles = await prisma.workerRole.findMany({ select: { name: true, skills: true } });
-  const profiles = await prisma.workerProfile.findMany({ select: { id: true, skills: true } });
-
-  let updated = 0;
-  let skipped = 0;
-
-  for (const profile of profiles) {
-    const workerSkills = (profile.skills || []).map(s => s.trim().toLowerCase());
-
-    if (workerSkills.length === 0) {
-      skipped++;
-      continue;
-    }
-
-    const matchedRoles = roles
-      .filter(role =>
-        (role.skills || []).some(s => workerSkills.includes(s.trim().toLowerCase()))
-      )
-      .map(role => role.name);
-
-    if (matchedRoles.length === 0) {
-      skipped++;
-      continue;
-    }
-
-    await prisma.workerProfile.update({
-      where: { id: profile.id },
-      data: { roles: matchedRoles }
-    });
-    updated++;
-  }
-
-  console.log(`Updated ${updated} workers with matched roles, ${skipped} left unchanged.`);
+  console.log("Worker roles are set manually in profiles; no backfill needed.");
 }
 
 main()

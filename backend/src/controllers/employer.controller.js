@@ -88,10 +88,9 @@ exports.uploadDocument = async (req, res, next) => {
 
 exports.getWorkersByLocation = async (req, res, next) => {
   try {
-    const { job_id, search, skill, role, page = 1, limit = 20 } = req.query;
+    const { job_id, search, role, page = 1, limit = 20 } = req.query;
 
     let locationText = null;
-    let jobSkills = [];
 
     if (job_id) {
       const job = await prisma.job.findUnique({ where: { id: job_id } });
@@ -99,7 +98,6 @@ exports.getWorkersByLocation = async (req, res, next) => {
         return res.status(404).json({ success: false, message: 'Job not found' });
       }
       locationText = job.locationText;
-      jobSkills = job.requiredSkills || [];
     }
 
     const where = { availability: 'AVAILABLE' };
@@ -110,10 +108,6 @@ exports.getWorkersByLocation = async (req, res, next) => {
 
     if (search && search.trim()) {
       where.fullName = { contains: search.trim(), mode: 'insensitive' };
-    }
-
-    if (skill && skill.trim()) {
-      where.skills = { has: skill.trim() };
     }
 
     if (role && role.trim()) {
@@ -135,27 +129,9 @@ exports.getWorkersByLocation = async (req, res, next) => {
       })
     ]);
 
-    const workersWithSkillMatch = workers.map(worker => {
-      const workerSkills = worker.skills || [];
-      const matchedSkills = workerSkills.filter(s => jobSkills.includes(s));
-      const skillMatch = jobSkills.length > 0
-        ? Math.round((matchedSkills.length / jobSkills.length) * 100)
-        : 0;
-
-      return {
-        ...worker,
-        skillMatch,
-        matchedSkills
-      };
-    });
-
-    if (jobSkills.length > 0) {
-      workersWithSkillMatch.sort((a, b) => b.skillMatch - a.skillMatch);
-    }
-
     res.json({
       success: true,
-      data: workersWithSkillMatch,
+      data: workers,
       pagination: {
         page: pageNum,
         limit: limitNum,
@@ -163,23 +139,6 @@ exports.getWorkersByLocation = async (req, res, next) => {
         totalPages: Math.ceil(total / limitNum)
       }
     });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.getSkills = async (req, res, next) => {
-  try {
-    const profiles = await prisma.workerProfile.findMany({
-      select: { skills: true }
-    });
-
-    const skillSet = new Set();
-    profiles.forEach(p => {
-      (p.skills || []).forEach(s => skillSet.add(s));
-    });
-
-    res.json({ success: true, data: Array.from(skillSet).sort() });
   } catch (error) {
     next(error);
   }

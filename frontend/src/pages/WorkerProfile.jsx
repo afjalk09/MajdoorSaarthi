@@ -17,7 +17,6 @@ const WorkerProfile = () => {
   const [editing, setEditing] = useState(false);
 
   const [fullName, setFullName] = useState('');
-  const [skills, setSkills] = useState('');
   const [roles, setRoles] = useState([]);
   const [customRole, setCustomRole] = useState('');
   const [roleList, setRoleList] = useState([]);
@@ -64,7 +63,6 @@ const WorkerProfile = () => {
       const p = res.data.data;
       setProfile(p);
       setFullName(p.fullName || '');
-      setSkills(p.skills?.join(', ') || '');
       setRoles(p.roles || []);
       setExperience(p.experienceYears || '');
       setLocation(p.locationText || '');
@@ -88,7 +86,6 @@ const WorkerProfile = () => {
     try {
       const res = await api.put('/worker/profile', {
         full_name: fullName,
-        skills: skills.split(',').map(s => s.trim()).filter(s => s),
         roles,
         experience_years: parseInt(experience) || 0,
         location_text: location,
@@ -107,7 +104,6 @@ const WorkerProfile = () => {
   const handleCancel = () => {
     if (profile) {
       setFullName(profile.fullName || '');
-      setSkills(profile.skills?.join(', ') || '');
       setRoles(profile.roles || []);
       setExperience(profile.experienceYears || '');
       setLocation(profile.locationText || '');
@@ -200,19 +196,6 @@ const WorkerProfile = () => {
               </div>
 
 <div>
-                  <p className="text-sm font-medium text-muted-foreground mb-2">Skills</p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile?.skills?.length > 0 ? (
-                      profile.skills.map((skill, i) => (
-                        <Badge key={i} variant="secondary">{skill}</Badge>
-                      ))
-                    ) : (
-                      <p className="text-base text-muted-foreground">No skills added</p>
-                    )}
-                  </div>
-                </div>
-
-                <div>
                   <p className="text-sm font-medium text-muted-foreground mb-2">Roles</p>
                   <div className="flex flex-wrap gap-2">
                     {profile?.roles?.length > 0 ? (
@@ -310,16 +293,6 @@ const WorkerProfile = () => {
                       <option value="PROJECT">Per Project</option>
                     </select>
                   </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="skills">Skills (comma separated)</Label>
-                  <Input
-                    id="skills"
-                    value={skills}
-                    onChange={(e) => setSkills(e.target.value)}
-                    placeholder="plumbing, electrical, carpentry"
-                  />
                 </div>
 
                 <div className="space-y-2">

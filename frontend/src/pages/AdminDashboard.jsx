@@ -191,7 +191,7 @@ const AdminDashboard = () => {
                         </CardHeader>
                         <CardContent>
                           <div className="text-sm space-y-1">
-                            <p>Skills: {worker.skills?.join(', ') || 'None'}</p>
+                            <p>Roles: {worker.roles?.join(', ') || 'None'}</p>
                             <p>Experience: {worker.experience_years} years</p>
                             <p>Reliability: {worker.reliability_score}/100</p>
                             <p>Wage: ₹{worker.expected_wage_min}-{worker.expected_wage_max}/{worker.wage_type}</p>

@@ -45,7 +45,6 @@ const WorkerDashboard = () => {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [skillFilter, setSkillFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [roleOptions, setRoleOptions] = useState([]);
   const [wageTypeFilter, setWageTypeFilter] = useState('');
@@ -62,12 +61,6 @@ const WorkerDashboard = () => {
     }
   };
 
-  const allSkills = useMemo(() => {
-    const set = new Set();
-    jobs.forEach(j => j.requiredSkills?.forEach(s => set.add(s)));
-    return [...set].sort();
-  }, [jobs]);
-
   const filteredJobs = useMemo(() => {
     let result = [...jobs];
 
@@ -76,12 +69,6 @@ const WorkerDashboard = () => {
       result = result.filter(j =>
         j.title?.toLowerCase().includes(q) ||
         j.description?.toLowerCase().includes(q)
-      );
-    }
-
-    if (skillFilter) {
-      result = result.filter(j =>
-        j.requiredSkills?.some(s => s.toLowerCase() === skillFilter.toLowerCase())
       );
     }
 
@@ -128,11 +115,10 @@ const WorkerDashboard = () => {
     }
 
     return result;
-  }, [jobs, searchQuery, skillFilter, roleFilter, wageTypeFilter, minWage, maxWage, sortBy]);
+  }, [jobs, searchQuery, roleFilter, wageTypeFilter, minWage, maxWage, sortBy]);
 
   const resetFilters = () => {
     setSearchQuery('');
-    setSkillFilter('');
     setRoleFilter('');
     setWageTypeFilter('');
     setMinWage('');
@@ -320,17 +306,6 @@ const WorkerDashboard = () => {
                       onChange={(e) => setSearchQuery(e.target.value)}
                     />
 
-                    <Select value={skillFilter} onValueChange={setSkillFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="All Skills" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allSkills.map(s => (
-                          <SelectItem key={s} value={s}>{s}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-
                     <Select value={roleFilter} onValueChange={setRoleFilter}>
                       <SelectTrigger>
                         <SelectValue placeholder="All Roles" />
@@ -433,12 +408,6 @@ const WorkerDashboard = () => {
                         ))}
                       </div>
                     )}
-
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {job.requiredSkills?.map((skill, i) => (
-                        <Badge key={i} variant="outline">{skill}</Badge>
-                      ))}
-                    </div>
 
                     {formatSchedule(job) && (
                       <p className="text-sm text-muted-foreground mb-2">

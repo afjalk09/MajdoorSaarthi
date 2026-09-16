@@ -4,10 +4,10 @@ const normalizeLocation = (location) => (location || '').trim().toLowerCase();
 
 const generateReasons = (worker, job, scores) => {
   const reasons = [];
-  const matchedSkills = (job.requiredSkills || []).filter(s => (worker.skills || []).includes(s));
-  reasons.push(`${matchedSkills.length} of ${(job.requiredSkills || []).length} skills match (${Math.round(scores.skillScore)}%)`);
   if (scores.roleName) {
     reasons.push(`Role match: ${scores.roleName}`);
+  } else {
+    reasons.push(`General worker — no exact role match`);
   }
   reasons.push(`${worker.experienceYears || 0} years experience`);
   reasons.push(`Reliability: ${worker.reliabilityScore || 0}/100`);
@@ -42,19 +42,9 @@ exports.findMatches = async (job) => {
   const matches = [];
 
   for (const worker of workers) {
-    // Hard filter: skills overlap
-    const hasMatchingSkills = (job.requiredSkills || []).some(
-      skill => (worker.skills || []).includes(skill)
-    );
-    if (!hasMatchingSkills) continue;
-
     // Hard filter: location is an exact text match
     const jobLocation = normalizeLocation(job.locationText);
     if (!jobLocation || normalizeLocation(worker.locationText) !== jobLocation) continue;
-
-    // Calculate scores
-    const matchedSkills = (job.requiredSkills || []).filter(s => (worker.skills || []).includes(s));
-    const skillScore = (matchedSkills.length / (job.requiredSkills || []).length) * 100;
 
     const experienceScore = Math.min(((worker.experienceYears || 0) / 10) * 100, 100);
 
@@ -69,18 +59,16 @@ exports.findMatches = async (job) => {
     const roleMatch = roleMatchScore(worker, job);
 
     const totalScore = (
-      skillScore * 0.25 +
+      roleMatch.score * 0.30 +
+      reliabilityScore * 0.25 +
       experienceScore * 0.15 +
-      reliabilityScore * 0.20 +
       wageScore * 0.15 +
-      proximityScore * 0.10 +
-      roleMatch.score * 0.15
+      proximityScore * 0.15
     );
 
     matches.push({
       worker_id: worker.id,
       full_name: worker.fullName,
-      skills: worker.skills,
       roles: worker.roles || [],
       experience_years: worker.experienceYears,
       reliability_score: worker.reliabilityScore,
@@ -88,7 +76,7 @@ exports.findMatches = async (job) => {
       role_match: roleMatch.roleName,
       match_score: Math.round(totalScore * 100) / 100,
       match_reasons: generateReasons(worker, job, {
-        skillScore, experienceScore, reliabilityScore, wageScore,
+        experienceScore, reliabilityScore, wageScore,
         proximityScore, roleName: roleMatch.roleName, roleScore: roleMatch.score
       })
     });

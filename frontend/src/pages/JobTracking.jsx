@@ -297,7 +297,7 @@ export default function JobTracking() {
                                   <div>
                                     <p className="font-medium">{w.fullName}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {w.skills?.length ? w.skills.join(', ') : 'No skills listed'}
+                                      {w.roles?.length ? w.roles.join(', ') : 'No roles listed'}
                                     </p>
                                     <p className="text-xs mt-1">
                                       {WORK_STATUS_LABELS[w.workStatus] || w.workStatus}

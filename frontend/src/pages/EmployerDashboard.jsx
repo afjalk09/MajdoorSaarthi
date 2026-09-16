@@ -33,7 +33,7 @@ const EmployerDashboard = () => {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [roleRequirements, setRoleRequirements] = useState([
-    { roleName: '', skills: '', count: 1 }
+    { roleName: '', count: 1 }
   ]);
   const [roleList, setRoleList] = useState([]);
 
@@ -138,7 +138,7 @@ const EmployerDashboard = () => {
   };
 
   const addRole = () => {
-    setRoleRequirements([...roleRequirements, { roleName: '', skills: '', count: 1 }]);
+    setRoleRequirements([...roleRequirements, { roleName: '', count: 1 }]);
   };
 
   const removeRole = (index) => {
@@ -149,13 +149,6 @@ const EmployerDashboard = () => {
   const updateRole = (index, field, value) => {
     const updated = [...roleRequirements];
     updated[index] = { ...updated[index], [field]: value };
-    // When a taxonomy role is picked and skills are empty, autofill from the taxonomy.
-    if (field === 'roleName' && value.trim()) {
-      const taxonomyRole = roleList.find(r => r.name.toLowerCase() === value.toLowerCase());
-      if (taxonomyRole && (!updated[index].skills || !updated[index].skills.trim())) {
-        updated[index].skills = (taxonomyRole.skills || []).join(', ');
-      }
-    }
     setRoleRequirements(updated);
   };
 
@@ -166,7 +159,6 @@ const EmployerDashboard = () => {
       .filter(r => r.roleName.trim())
       .map(r => ({
         roleName: r.roleName.trim(),
-        skills: r.skills.split(',').map(s => s.trim()).filter(s => s),
         count: parseInt(r.count) || 1
       }));
 
@@ -199,7 +191,7 @@ const EmployerDashboard = () => {
       setEndDate('');
       setStartTime('');
       setEndTime('');
-      setRoleRequirements([{ roleName: '', skills: '', count: 1 }]);
+      setRoleRequirements([{ roleName: '', count: 1 }]);
       fetchData();
     } catch (err) {
       showError(err.response?.data?.message || 'Failed to create job');
@@ -453,7 +445,7 @@ const EmployerDashboard = () => {
 
                   {roleRequirements.map((role, index) => (
                     <div key={index} className="grid grid-cols-12 gap-2 items-end border rounded-lg p-3">
-                      <div className="col-span-4 space-y-1">
+                      <div className="col-span-7 space-y-1">
                         <Label className="text-xs">Role Name</Label>
                         <RoleSelect
                           value={role.roleName}
@@ -462,15 +454,7 @@ const EmployerDashboard = () => {
                           placeholder="Type to search a role"
                         />
                       </div>
-                      <div className="col-span-5 space-y-1">
-                        <Label className="text-xs">Skills (comma separated)</Label>
-                        <Input
-                          value={role.skills}
-                          onChange={(e) => updateRole(index, 'skills', e.target.value)}
-                          placeholder="carpentry, woodworking"
-                        />
-                      </div>
-                      <div className="col-span-2 space-y-1">
+                      <div className="col-span-4 space-y-1">
                         <Label className="text-xs">Count</Label>
                         <Input
                           type="number"
@@ -703,11 +687,6 @@ const EmployerDashboard = () => {
                           </div>
                           <Badge className="bg-green-600">{match.match_score}% match</Badge>
                         </div>
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {match.skills?.map((skill, i) => (
-                            <Badge key={i} variant="outline" className="text-xs">{skill}</Badge>
-                          ))}
-                        </div>
                         <div className="mb-2">
                           {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
                         </div>
@@ -761,18 +740,8 @@ const EmployerDashboard = () => {
                             <p className="text-sm text-muted-foreground">{worker.locationText}</p>
                           </div>
                           <div className="flex gap-2">
-                            {worker.skillMatch > 0 && (
-                              <Badge className="bg-green-600">{worker.skillMatch}% skill match</Badge>
-                            )}
                             <Badge variant="outline">Score: {worker.reliabilityScore}/5</Badge>
                           </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {worker.skills?.map((skill, i) => (
-                            <Badge key={i} variant={worker.matchedSkills?.includes(skill) ? 'default' : 'outline'} className="text-xs">
-                              {skill}
-                            </Badge>
-                          ))}
                         </div>
                         <p className="text-xs text-muted-foreground mb-3">
                           Experience: {worker.experienceYears} years | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
@@ -824,7 +793,6 @@ const EmployerDashboard = () => {
                             <h4 className="font-semibold">{app.worker?.fullName}</h4>
                             <p className="text-sm text-muted-foreground">
                               {app.worker?.locationText}
-                              {app.worker?.skills?.length > 0 && ` • ${app.worker.skills.join(', ')}`}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               Applied: {new Date(app.appliedAt).toLocaleDateString()}

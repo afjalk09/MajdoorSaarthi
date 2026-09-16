@@ -41,19 +41,10 @@ async function main() {
         continue;
       }
 
-      const workerSkills = app.worker?.skills || [];
-      let best = null;
-      let bestScore = 0;
-
-      for (const role of available) {
-        const roleSkills = role.skills || [];
-        const matched = workerSkills.filter(s => roleSkills.includes(s)).length;
-        const score = roleSkills.length > 0 ? matched / roleSkills.length : 0;
-        if (score > bestScore) {
-          bestScore = score;
-          best = role;
-        }
-      }
+      const workerRoles = (app.worker?.roles || []).map(r => r.toLowerCase());
+      let best = available.find(r =>
+        workerRoles.includes((r.roleName || '').toLowerCase())
+      );
 
       if (!best) {
         best = available.reduce((a, b) =>

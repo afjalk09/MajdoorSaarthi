@@ -1,6 +1,6 @@
 const prisma = require('../lib/prisma');
 
-// All active taxonomy roles with their default skills
+// All active taxonomy roles
 const getAllRoles = async () => {
   return prisma.workerRole.findMany({
     where: { active: true },
@@ -18,15 +18,6 @@ const isValidRoleName = async (name) => {
   return !!role;
 };
 
-// Taxonomy role names whose default skills overlap the worker's skills
-const rolesForSkills = async (skills = []) => {
-  const workerSkills = skills.map(s => s.trim().toLowerCase());
-  const roles = await prisma.workerRole.findMany({ where: { active: true } });
-  return roles
-    .filter(role => (role.skills || []).some(s => workerSkills.includes(s.trim().toLowerCase())))
-    .map(role => role.name);
-};
-
 // Canonical role name for a given (case-insensitive) raw name, if it exists
 const canonicalRoleName = (roles, rawName) => {
   const name = (rawName || '').trim();
@@ -34,24 +25,8 @@ const canonicalRoleName = (roles, rawName) => {
   return roles.find(r => r.name.toLowerCase() === name.toLowerCase())?.name || null;
 };
 
-// Union of taxonomy default skills for a set of role names
-const suggestSkillsForRoles = async (roleNames = []) => {
-  const names = roleNames.filter(Boolean).map(n => n.trim());
-  if (names.length === 0) return [];
-  const roles = await prisma.workerRole.findMany({
-    where: {
-      name: { in: names },
-      active: true
-    },
-    select: { skills: true }
-  });
-  return [...new Set(roles.flatMap(r => r.skills || []))];
-};
-
 module.exports = {
   getAllRoles,
   isValidRoleName,
-  rolesForSkills,
-  canonicalRoleName,
-  suggestSkillsForRoles
+  canonicalRoleName
 };

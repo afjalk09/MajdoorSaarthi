@@ -99,7 +99,6 @@ model WorkerProfile {
   fullName         String
   aadhaarNumber    String?
   panNumber        String?
-  skills           String[]
   roles            String[]     @default([])
   experienceYears  Int          @default(0)
   locationLat      Float?
@@ -160,7 +159,6 @@ model Job {
   employerId     String
   title          String
   description    String?
-  requiredSkills String[]
   workersNeeded  Int        @default(1)
   locationLat    Float?
   locationLng    Float?
@@ -191,7 +189,6 @@ model JobRole {
   id          String  @id @default(uuid())
   jobId       String
   roleName    String
-  skills      String[]
   count       Int
   filledCount Int     @default(0)
 
@@ -204,7 +201,6 @@ model JobRole {
 model WorkerRole {
   id        String   @id @default(uuid())
   name      String   @unique
-  skills    String[]
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 }
