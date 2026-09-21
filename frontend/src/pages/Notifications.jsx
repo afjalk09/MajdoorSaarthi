@@ -101,6 +101,7 @@ export default function Notifications() {
       case 'DISPUTE_RAISED': return '⚠️';
       case 'DISPUTE_RESOLVED': return '🔧';
       case 'REVIEW_RECEIVED': return '⭐';
+      case 'REVIEW_REQUIRED': return '📝';
       case 'WORK_COMPLETION_REQUEST': return '🙋';
       case 'WORK_ACCEPTED': return '👌';
       case 'WORK_REJECTED': return '↩️';
@@ -152,7 +153,12 @@ export default function Notifications() {
                 className={`cursor-pointer transition-colors hover:bg-muted/50 ${
                   !notification.isRead ? 'border-l-4 border-l-primary' : ''
                 }`}
-                onClick={() => handleMarkAsRead(notification.id)}
+                onClick={() => {
+                  handleMarkAsRead(notification.id);
+                  if (['JOB_COMPLETED', 'REVIEW_REQUIRED'].includes(notification.type) && notification.job?.id) {
+                    navigate(`/jobs/${notification.job.id}/track`);
+                  }
+                }}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
@@ -205,6 +211,17 @@ export default function Notifications() {
                             onClick={() => handleApplicationAction(notification, 'reject')}
                           >
                             Reject
+                          </Button>
+                        </div>
+                      )}
+                      {notification.type === 'REVIEW_REQUIRED' && notification.job?.id && (
+                        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => navigate(`/jobs/${notification.job.id}/track`)}
+                          >
+                            Review Now
                           </Button>
                         </div>
                       )}

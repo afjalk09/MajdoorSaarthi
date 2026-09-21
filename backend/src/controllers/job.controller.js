@@ -536,8 +536,24 @@ exports.updateJobStatus = async (req, res, next) => {
             `The job "${job.title}" has been marked as completed.`,
             job.id
           );
+          await createNotification(
+            worker.userId,
+            'REVIEW_REQUIRED',
+            'Review Required',
+            `Please rate your employer for the job "${job.title}".`,
+            job.id
+          );
         }
       }
+
+      // Notify employer to review workers
+      await createNotification(
+        job.employerId ? (await prisma.employerProfile.findUnique({ where: { id: job.employerId } }))?.userId : null,
+        'REVIEW_REQUIRED',
+        'Review Required',
+        `Please rate your hired worker(s) for the job "${job.title}".`,
+        job.id
+      );
     }
 
     res.json({ success: true, data: updatedJob });
@@ -1160,7 +1176,7 @@ exports.completeJob = async (req, res, next) => {
       });
     }
 
-    // Notify all hired workers
+    // Notify all hired workers (JOB_COMPLETED + REVIEW_REQUIRED)
     for (const app of job.applications) {
       await createNotification(
         app.worker.userId,
@@ -1169,18 +1185,32 @@ exports.completeJob = async (req, res, next) => {
         `The job "${job.title}" has been marked as completed.`,
         jobId
       );
-    }
-
-    // Notify employer if worker initiated
-    if (user.role === 'WORKER') {
       await createNotification(
-        job.employer.userId,
-        'JOB_COMPLETED',
-        'Job Completed',
-        `The job "${job.title}" has been marked as completed by a worker.`,
+        app.worker.userId,
+        'REVIEW_REQUIRED',
+        'Review Required',
+        `Please rate your employer for the job "${job.title}".`,
         jobId
       );
     }
+
+    // Notify employer (always, not just when worker initiated)
+    await createNotification(
+      job.employer.userId,
+      'JOB_COMPLETED',
+      'Job Completed',
+      user.role === 'WORKER'
+        ? `The job "${job.title}" has been marked as completed by a worker.`
+        : `The job "${job.title}" has been marked as completed.`,
+      jobId
+    );
+    await createNotification(
+      job.employer.userId,
+      'REVIEW_REQUIRED',
+      'Review Required',
+      `Please rate your hired worker(s) for the job "${job.title}".`,
+      jobId
+    );
 
     res.json({ success: true, data: updatedJob });
   } catch (error) {

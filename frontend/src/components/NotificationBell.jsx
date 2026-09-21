@@ -88,6 +88,13 @@ export default function NotificationBell() {
     }
   };
 
+  const handleNotificationClick = (notification) => {
+    handleMarkAsRead(notification.id);
+    if (['JOB_COMPLETED', 'REVIEW_REQUIRED'].includes(notification.type) && notification.job?.id) {
+      navigate(`/jobs/${notification.job.id}/track`);
+    }
+  };
+
   const handleOfferAction = async (notification, action) => {
     try {
       const appId = notification.application?.id;
@@ -151,7 +158,7 @@ export default function NotificationBell() {
             <DropdownMenuItem
               key={notification.id}
               className={`px-4 py-3 cursor-pointer ${!notification.isRead ? 'bg-muted/50' : ''}`}
-              onClick={() => handleMarkAsRead(notification.id)}
+              onClick={() => handleNotificationClick(notification)}
             >
               <div className="flex flex-col gap-1 w-full">
                 <div className="flex items-center justify-between">

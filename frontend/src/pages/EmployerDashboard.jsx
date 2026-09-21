@@ -12,6 +12,8 @@ import NotificationBell from '@/components/NotificationBell';
 import { showSuccess, showError } from '@/lib/toast';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
+import PendingReviewsBanner from '@/components/PendingReviewsBanner';
+import ReviewPromptDialog from '@/components/ReviewPromptDialog';
 import RoleSelect from '@/components/RoleSelect';
 
 const EmployerDashboard = () => {
@@ -96,6 +98,7 @@ const EmployerDashboard = () => {
   const historyJobs = jobs.filter(j => j.status === 'COMPLETED');
 
   const [historyDetails, setHistoryDetails] = useState({});
+  const [pendingReviewJobs, setPendingReviewJobs] = useState([]);
 
   useEffect(() => {
     if (activeTab !== 'history') return;
@@ -115,6 +118,31 @@ const EmployerDashboard = () => {
 
     return () => { cancelled = true; };
   }, [activeTab]);
+
+  // Fetch pending review status for completed jobs
+  useEffect(() => {
+    if (historyJobs.length === 0) {
+      setPendingReviewJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const fetchPending = async () => {
+      const pending = [];
+      for (const job of historyJobs) {
+        try {
+          const res = await api.get(`/jobs/${job.id}`);
+          if (!cancelled && !res.data.data.reviewComplete) {
+            pending.push({ id: job.id, title: job.title, locationText: job.locationText });
+          }
+        } catch {
+          // skip
+        }
+      }
+      if (!cancelled) setPendingReviewJobs(pending);
+    };
+    fetchPending();
+    return () => { cancelled = true; };
+  }, [historyJobs.length]);
 
   const refreshHistoryDetail = async (jobId) => {
     try {
@@ -359,6 +387,9 @@ const EmployerDashboard = () => {
           <Button variant={activeTab === 'jobs' ? 'default' : 'outline'} onClick={() => setActiveTab('jobs')}>My Jobs</Button>
           <Button variant={activeTab === 'history' ? 'default' : 'outline'} onClick={() => setActiveTab('history')}>History</Button>
         </div>
+
+        {activeTab !== 'history' && <PendingReviewsBanner pendingJobs={pendingReviewJobs} />}
+        <ReviewPromptDialog pendingJobs={pendingReviewJobs} />
 
         {/* Create Job Tab */}
         {activeTab === 'create' && (

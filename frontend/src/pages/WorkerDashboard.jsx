@@ -12,6 +12,8 @@ import { showSuccess, showError } from '@/lib/toast';
 import ReviewModal from '@/components/ReviewModal';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
+import PendingReviewsBanner from '@/components/PendingReviewsBanner';
+import ReviewPromptDialog from '@/components/ReviewPromptDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -25,6 +27,7 @@ const WorkerDashboard = () => {
   const [activeTab, setActiveTab] = useState('jobs');
   const [loading, setLoading] = useState(true);
   const [historyDetails, setHistoryDetails] = useState({});
+  const [pendingReviewJobs, setPendingReviewJobs] = useState([]);
   const [applyJob, setApplyJob] = useState(null);
   const [applyRoleId, setApplyRoleId] = useState('');
   const [applying, setApplying] = useState(false);
@@ -154,6 +157,31 @@ const WorkerDashboard = () => {
 
     return () => { cancelled = true; };
   }, [activeTab]);
+
+  // Fetch pending review status for completed jobs
+  useEffect(() => {
+    if (historyJobs.length === 0) {
+      setPendingReviewJobs([]);
+      return;
+    }
+    let cancelled = false;
+    const fetchPending = async () => {
+      const pending = [];
+      for (const app of historyJobs) {
+        try {
+          const res = await api.get(`/jobs/${app.jobId}`);
+          if (!cancelled && !res.data.data.reviewComplete) {
+            pending.push({ id: app.jobId, title: app.job?.title || 'Untitled', locationText: app.job?.locationText });
+          }
+        } catch {
+          // skip
+        }
+      }
+      if (!cancelled) setPendingReviewJobs(pending);
+    };
+    fetchPending();
+    return () => { cancelled = true; };
+  }, [historyJobs.length]);
 
   const refreshHistoryDetail = async (jobId) => {
     try {
@@ -289,6 +317,9 @@ const WorkerDashboard = () => {
             History
           </Button>
         </div>
+
+        {activeTab !== 'history' && <PendingReviewsBanner pendingJobs={pendingReviewJobs} />}
+        <ReviewPromptDialog pendingJobs={pendingReviewJobs} />
 
         {/* Jobs Tab */}
         {activeTab === 'jobs' && (
