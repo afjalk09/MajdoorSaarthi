@@ -14,6 +14,7 @@ import { ArrowLeft, MapPin, IndianRupee, Calendar, Users } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import JobBanner from '@/components/JobBanner';
 
 const WORK_STATUS_LABELS = {
   NOT_STARTED: 'Not Started',
@@ -197,14 +198,15 @@ export default function JobTracking() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-3xl mx-auto p-4">
+    <div>
+      <div className="max-w-3xl mx-auto section-container py-8">
         <Button variant="ghost" onClick={() => navigate('/dashboard')} className="mb-4">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Dashboard
         </Button>
 
-        <Card className="mb-6">
+        <Card className="mb-6 overflow-hidden">
+          <JobBanner job={job} />
           <CardHeader>
             <div className="flex items-start justify-between">
               <div>

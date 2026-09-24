@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import socket from '../services/socket';
@@ -15,6 +16,41 @@ import JobReviewPanel from '@/components/JobReviewPanel';
 import PendingReviewsBanner from '@/components/PendingReviewsBanner';
 import ReviewPromptDialog from '@/components/ReviewPromptDialog';
 import RoleSelect from '@/components/RoleSelect';
+import { getWorkerImage, getRoleImage } from '@/lib/roleImages';
+import { MapPin } from 'lucide-react';
+
+const WorkerThumb = ({ worker }) => {
+  const [error, setError] = useState(false);
+  const img = getWorkerImage(worker);
+  const primaryRole = (worker?.roles || [])[0];
+  const initials = (worker?.fullName || 'W')
+    .split(' ')
+    .map(w => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  return (
+    <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-saffron-100 to-earth-100 border border-warm-200 flex items-center justify-center">
+      {!error && img ? (
+        <img
+          src={img}
+          alt={worker?.fullName}
+          className="w-full h-full object-cover"
+          onError={() => setError(true)}
+          loading="lazy"
+        />
+      ) : (
+        <span className="font-display font-bold text-saffron-600">{initials}</span>
+      )}
+      {primaryRole && (
+        <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-1 pt-2 pb-0.5 text-[8px] text-white text-center truncate font-medium">
+          {primaryRole}
+        </span>
+      )}
+    </div>
+  );
+};
 
 const EmployerDashboard = () => {
   const { user, logout } = useAuth();
@@ -366,26 +402,39 @@ const EmployerDashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-green-600">Employer Dashboard</h1>
-          <div className="flex items-center gap-4">
-            <NotificationBell />
-            <Button variant="outline" onClick={() => navigate('/browse-workers')}>Browse Workers</Button>
-            <Button variant="outline" onClick={() => navigate('/disputes')}>My Disputes</Button>
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <Button variant="outline" onClick={logout}>Logout</Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="flex gap-2 mb-6">
-          <Button variant="outline" onClick={() => navigate('/employer/profile')}>My Profile</Button>
-          <Button variant={activeTab === 'create' ? 'default' : 'outline'} onClick={() => setActiveTab('create')}>Create Job</Button>
-          <Button variant={activeTab === 'jobs' ? 'default' : 'outline'} onClick={() => setActiveTab('jobs')}>My Jobs</Button>
-          <Button variant={activeTab === 'history' ? 'default' : 'outline'} onClick={() => setActiveTab('history')}>History</Button>
+    <>
+      <main className="section-container py-8">
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {[
+            { key: 'create', label: 'Create Job' },
+            { key: 'jobs', label: 'My Jobs' },
+            { key: 'history', label: 'History' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`relative px-5 py-2.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'text-white'
+                  : 'text-warm-600 hover:text-warm-900 hover:bg-warm-100'
+              }`}
+            >
+              {activeTab === tab.key && (
+                <motion.div
+                  layoutId="employer-tab-bg"
+                  className="absolute inset-0 bg-gradient-to-r from-earth-500 to-earth-600 rounded-xl shadow-md"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              <span className="relative z-10">{tab.label}</span>
+            </button>
+          ))}
+          <button
+            onClick={() => navigate('/employer/profile')}
+            className="px-5 py-2.5 rounded-xl text-sm font-medium text-warm-600 hover:text-warm-900 hover:bg-warm-100 transition-colors whitespace-nowrap"
+          >
+            My Profile
+          </button>
         </div>
 
         {activeTab !== 'history' && <PendingReviewsBanner pendingJobs={pendingReviewJobs} />}
@@ -708,26 +757,49 @@ const EmployerDashboard = () => {
                     No matching workers found. Try adjusting your job requirements.
                   </p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {matches.map((match) => (
-                      <div key={match.worker_id} className="border rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h4 className="font-semibold">{match.full_name}</h4>
-                            <p className="text-sm text-muted-foreground">{match.location_text}</p>
+                      <div key={match.worker_id} className="border rounded-xl p-4 flex flex-col">
+                        <div className="flex items-start gap-3 mb-2">
+                          <WorkerThumb worker={{ fullName: match.full_name, roles: match.roles, locationText: match.location_text }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="font-semibold truncate">{match.full_name}</h4>
+                              <Badge className="bg-gradient-to-r from-saffron-500 to-saffron-600">{match.match_score}% match</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin size={11} className="text-saffron-500" />
+                              {match.location_text}
+                            </p>
+                            {(match.roles || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {match.roles.map((r, i) => (
+                                  <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
+                                    <img
+                                      src={getRoleImage(r)}
+                                      alt=""
+                                      className="w-3 h-3 rounded-full object-cover"
+                                      onError={e => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                    {r}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          <Badge className="bg-green-600">{match.match_score}% match</Badge>
                         </div>
                         <div className="mb-2">
                           {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
                         </div>
-                        <ul className="text-xs text-muted-foreground mb-3">
+                        <ul className="text-xs text-muted-foreground mb-3 flex-1">
                           {match.match_reasons?.map((reason, i) => (
                             <li key={i}>• {reason}</li>
                           ))}
                         </ul>
                         <Button
                           size="sm"
+                          className="w-full bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                          disabled={!effectiveRoleId(selectedJob, match.worker_id, match.suggestedRole?.id)}
                           onClick={() => handleHire(selectedJob, match.worker_id, match.suggestedRole?.id)}
                         >
                           Send Offer
@@ -762,30 +834,53 @@ const EmployerDashboard = () => {
                     No available workers found at this location.
                   </p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {workers.map((worker) => (
-                      <div key={worker.id} className="border rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h4 className="font-semibold">{worker.fullName}</h4>
-                            <p className="text-sm text-muted-foreground">{worker.locationText}</p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Badge variant="outline">Score: {worker.reliabilityScore}/5</Badge>
+                      <div key={worker.id} className="border rounded-xl p-4 flex flex-col">
+                        <div className="flex items-start gap-3 mb-2">
+                          <WorkerThumb worker={worker} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="font-semibold truncate">{worker.fullName}</h4>
+                              <Badge variant="outline">★ {worker.reliabilityScore}/5</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin size={11} className="text-saffron-500" />
+                              {worker.locationText}
+                            </p>
+                            {(worker.roles || []).length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5">
+                                {worker.roles.map((r, i) => (
+                                  <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
+                                    <img
+                                      src={getRoleImage(r)}
+                                      alt=""
+                                      className="w-3 h-3 rounded-full object-cover"
+                                      onError={e => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                    {r}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground mb-3">
-                          Experience: {worker.experienceYears} years | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
+                          Experience: {worker.experienceYears} yrs | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
                         </p>
-<div className="mb-3">
+                        <div className="mb-3">
                           {renderRoleSelect(browseJob, worker.id)}
                         </div>
-                        <Button
-                          size="sm"
-                          onClick={() => handleHire(browseJob, worker.id)}
-                        >
-                          Send Offer
-                        </Button>
+                        <div className="mt-auto">
+                          <Button
+                            size="sm"
+                            className="w-full bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                            disabled={!effectiveRoleId(browseJob, worker.id)}
+                            onClick={() => handleHire(browseJob, worker.id)}
+                          >
+                            Send Offer
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -818,14 +913,34 @@ const EmployerDashboard = () => {
                 ) : (
                   <div className="space-y-4">
                     {applications.map((app) => (
-                      <div key={app.id} className="border rounded-lg p-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <h4 className="font-semibold">{app.worker?.fullName}</h4>
-                            <p className="text-sm text-muted-foreground">
+                      <div key={app.id} className="border rounded-xl p-4">
+                        <div className="flex items-start gap-3 mb-2">
+                          <WorkerThumb worker={app.worker} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="font-semibold truncate">{app.worker?.fullName}</h4>
+                              <Badge variant={app.status === 'PENDING' ? 'secondary' : app.status === 'OFFERED' ? 'outline' : app.status === 'OFFER_WITHDRAWN' ? 'secondary' : 'default'}>
+                                {app.status === 'OFFERED' ? 'OFFER PENDING' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <MapPin size={11} className="text-saffron-500" />
                               {app.worker?.locationText}
                             </p>
-                            <p className="text-xs text-muted-foreground">
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {(app.worker?.roles || []).map((r, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
+                                  <img
+                                    src={getRoleImage(r)}
+                                    alt=""
+                                    className="w-3 h-3 rounded-full object-cover"
+                                    onError={e => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                  {r}
+                                </span>
+                              ))}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
                               Applied: {new Date(app.appliedAt).toLocaleDateString()}
                             </p>
                             {app.jobRole && (
@@ -834,9 +949,6 @@ const EmployerDashboard = () => {
                               </p>
                             )}
                           </div>
-                          <Badge variant={app.status === 'PENDING' ? 'secondary' : app.status === 'OFFERED' ? 'outline' : app.status === 'OFFER_WITHDRAWN' ? 'secondary' : 'default'}>
-                            {app.status === 'OFFERED' ? 'OFFER PENDING' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
-                          </Badge>
                         </div>
                         {app.status === 'PENDING' && (
                           <div className="flex items-end gap-2 flex-wrap">
@@ -845,6 +957,8 @@ const EmployerDashboard = () => {
                             </div>
                             <Button
                               size="sm"
+                              className="bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                              disabled={!effectiveRoleId(appsJob, app.workerId, app.jobRoleId)}
                               onClick={() => handleAcceptApplication(appsJob, app.workerId, app.jobRoleId)}
                             >
                               Send Offer
@@ -879,7 +993,7 @@ const EmployerDashboard = () => {
           </div>
         )}
       </main>
-    </div>
+    </>
   );
 };
 

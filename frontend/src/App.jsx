@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import Layout from './components/Layout';
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -19,7 +20,16 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return (
+      <Layout showFooter={false}>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-10 h-10 border-3 border-saffron-200 border-t-saffron-500 rounded-full animate-spin" />
+            <p className="text-warm-500 font-medium">Loading...</p>
+          </div>
+        </div>
+      </Layout>
+    );
   }
 
   if (!user) {
@@ -59,7 +69,7 @@ function AppRoutes() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            {getDashboard()}
+            <Layout>{getDashboard()}</Layout>
           </ProtectedRoute>
         }
       />
@@ -67,7 +77,7 @@ function AppRoutes() {
         path="/worker/profile"
         element={
           <ProtectedRoute allowedRoles={['WORKER']}>
-            <WorkerProfile />
+            <Layout><WorkerProfile /></Layout>
           </ProtectedRoute>
         }
       />
@@ -75,7 +85,7 @@ function AppRoutes() {
         path="/employer/profile"
         element={
           <ProtectedRoute allowedRoles={['EMPLOYER']}>
-            <EmployerProfile />
+            <Layout><EmployerProfile /></Layout>
           </ProtectedRoute>
         }
       />
@@ -83,7 +93,7 @@ function AppRoutes() {
         path="/employer/jobs/:id/edit"
         element={
           <ProtectedRoute allowedRoles={['EMPLOYER']}>
-            <EditJob />
+            <Layout><EditJob /></Layout>
           </ProtectedRoute>
         }
       />
@@ -91,7 +101,7 @@ function AppRoutes() {
         path="/browse-workers"
         element={
           <ProtectedRoute allowedRoles={['EMPLOYER']}>
-            <BrowseWorkers />
+            <Layout><BrowseWorkers /></Layout>
           </ProtectedRoute>
         }
       />
@@ -99,7 +109,7 @@ function AppRoutes() {
         path="/notifications"
         element={
           <ProtectedRoute>
-            <Notifications />
+            <Layout><Notifications /></Layout>
           </ProtectedRoute>
         }
       />
@@ -107,7 +117,7 @@ function AppRoutes() {
         path="/jobs/:id/track"
         element={
           <ProtectedRoute>
-            <JobTracking />
+            <Layout><JobTracking /></Layout>
           </ProtectedRoute>
         }
       />
@@ -115,7 +125,7 @@ function AppRoutes() {
         path="/disputes"
         element={
           <ProtectedRoute>
-            <Disputes />
+            <Layout><Disputes /></Layout>
           </ProtectedRoute>
         }
       />

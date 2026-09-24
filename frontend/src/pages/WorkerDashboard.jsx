@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import socket from '../services/socket';
@@ -17,6 +18,8 @@ import ReviewPromptDialog from '@/components/ReviewPromptDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import JobBanner from '@/components/JobBanner';
+import { MapPin } from 'lucide-react';
 
 const WorkerDashboard = () => {
   const { user, logout } = useAuth();
@@ -271,51 +274,51 @@ const WorkerDashboard = () => {
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return (
+      <div className="section-container min-h-[60vh] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-3 border-saffron-200 border-t-saffron-500 rounded-full animate-spin" />
+          <p className="text-warm-500 font-medium">Loading dashboard...</p>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-green-600">Worker Dashboard</h1>
-          <div className="flex items-center gap-4">
-            <NotificationBell />
-            <Button variant="outline" onClick={() => navigate('/disputes')}>My Disputes</Button>
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <Button variant="outline" onClick={logout}>Logout</Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
+    return (
+    <>
+      <main className="section-container py-8">
         {/* Tabs */}
-        <div className="flex gap-2 mb-6">
-          <Button
-            variant="outline"
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {[
+            { key: 'jobs', label: 'Available Jobs' },
+            { key: 'applications', label: 'My Applications' },
+            { key: 'history', label: 'History' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`relative px-5 py-2.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'text-white'
+                  : 'text-warm-600 hover:text-warm-900 hover:bg-warm-100'
+              }`}
+            >
+              {activeTab === tab.key && (
+                <motion.div
+                  layoutId="worker-tab-bg"
+                  className="absolute inset-0 bg-gradient-to-r from-saffron-500 to-saffron-600 rounded-xl shadow-md"
+                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                />
+              )}
+              <span className="relative z-10">{tab.label}</span>
+            </button>
+          ))}
+          <button
             onClick={() => navigate('/worker/profile')}
+            className="px-5 py-2.5 rounded-xl text-sm font-medium text-warm-600 hover:text-warm-900 hover:bg-warm-100 transition-colors whitespace-nowrap"
           >
             My Profile
-          </Button>
-          <Button
-            variant={activeTab === 'jobs' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('jobs')}
-          >
-            Available Jobs
-          </Button>
-          <Button
-            variant={activeTab === 'applications' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('applications')}
-          >
-            My Applications
-          </Button>
-          <Button
-            variant={activeTab === 'history' ? 'default' : 'outline'}
-            onClick={() => setActiveTab('history')}
-          >
-            History
-          </Button>
+          </button>
         </div>
 
         {activeTab !== 'history' && <PendingReviewsBanner pendingJobs={pendingReviewJobs} />}
@@ -406,55 +409,52 @@ const WorkerDashboard = () => {
                 </CardContent>
               </Card>
             ) : (
-              filteredJobs.map((job) => (
-                <Card key={job.id}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{job.title}</CardTitle>
-                        <CardDescription>
-                          {job.locationText || 'Location not specified'}
-                        </CardDescription>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredJobs.map((job) => (
+                  <Card key={job.id} className="overflow-hidden flex flex-col group hover:shadow-lg transition-shadow duration-200">
+                    <JobBanner job={job} aspect="aspect-[4/3]" />
+                    <CardContent className="flex-1 flex flex-col p-4">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <CardTitle className="text-base leading-snug line-clamp-1">{job.title}</CardTitle>
+                        <Badge className="shrink-0">₹{job.wageAmount}<span className="text-[10px] opacity-80">/{job.wageType}</span></Badge>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {job.matchedRoles?.length > 0 && (
-                          <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                            Fits your role
-                          </Badge>
-                        )}
-                        <Badge>₹{job.wageAmount}/{job.wageType}</Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4">{job.description}</p>
-
-                    {/* Role requirements */}
-                    {job.jobRoles && job.jobRoles.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {job.jobRoles.map((role, i) => (
-                          <Badge key={i} variant="secondary">
-                            {role.roleName}: {role.count - role.filledCount} needed
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-
-                    {formatSchedule(job) && (
-                      <p className="text-sm text-muted-foreground mb-2">
-                        Schedule: {formatSchedule(job)}
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
+                        <MapPin size={11} />
+                        {job.locationText || 'Location not specified'}
                       </p>
-                    )}
 
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground">
-                        Workers: {job.workersNeeded} | Duration: {job.durationDays} days
-                      </span>
-                      <Button onClick={() => { setApplyJob(job); setApplyRoleId(''); }}>Apply</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
+                      {job.matchedRoles?.length > 0 && (
+                        <Badge className="bg-green-100 text-green-800 hover:bg-green-100 mb-2 self-start">
+                          Fits your role
+                        </Badge>
+                      )}
+
+                      {job.jobRoles && job.jobRoles.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-3">
+                          {job.jobRoles.slice(0, 3).map((role, i) => (
+                            <span key={i} className="px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
+                              {role.roleName}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-auto pt-3 border-t border-warm-100 flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          {job.workersNeeded} workers · {job.durationDays} days
+                        </span>
+                        <Button
+                          size="sm"
+                          className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white"
+                          onClick={() => { setApplyJob(job); setApplyRoleId(''); }}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -668,7 +668,7 @@ const WorkerDashboard = () => {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
 

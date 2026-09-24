@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
 
 const AdminDashboard = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('analytics');
   const [analytics, setAnalytics] = useState(null);
   const [verifications, setVerifications] = useState([]);
@@ -53,18 +53,8 @@ const AdminDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-green-600">Admin Dashboard</h1>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <Button variant="outline" onClick={logout}>Logout</Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8">
+    <div>
+      <main className="section-container py-8">
         <div className="flex gap-2 mb-6">
           <Button variant={activeTab === 'analytics' ? 'default' : 'outline'} onClick={() => setActiveTab('analytics')}>Analytics</Button>
           <Button variant={activeTab === 'verifications' ? 'default' : 'outline'} onClick={() => setActiveTab('verifications')}>

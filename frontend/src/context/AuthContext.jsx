@@ -9,13 +9,33 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
+    const validateSession = async () => {
+      const token = localStorage.getItem('token');
+      const savedUser = localStorage.getItem('user');
 
-    if (token && savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    setLoading(false);
+      if (!token || !savedUser) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await api.get('/auth/me');
+        setUser(res.data.data.user || JSON.parse(savedUser));
+      } catch (err) {
+        if (err.response?.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          socket.disconnect();
+          setUser(null);
+        } else {
+          setUser(JSON.parse(savedUser));
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    validateSession();
   }, []);
 
   const login = async (email, password) => {

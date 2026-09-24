@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
 
 const EmployerProfile = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,27 +92,12 @@ const EmployerProfile = () => {
   };
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+    return <div className="flex items-center justify-center py-16">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
-              ← Back
-            </Button>
-            <h1 className="text-2xl font-bold text-green-600">My Profile</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
-            <Button variant="outline" onClick={logout}>Logout</Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-4 py-8">
+    <div>
+      <main className="max-w-3xl mx-auto section-container py-8">
         {!editing ? (
           <Card>
             <CardHeader>
