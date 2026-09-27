@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import JobBanner from '@/components/JobBanner';
+import JobImage from '@/components/JobImage';
 import { MapPin } from 'lucide-react';
 
 const WorkerDashboard = () => {
@@ -473,18 +474,24 @@ const WorkerDashboard = () => {
               applications.map((app) => (
                 <Card key={app.id}>
                   <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <CardTitle>{app.job?.title}</CardTitle>
-                        <CardDescription>{app.job?.locationText}</CardDescription>
+                    <div className="flex gap-4 items-start">
+                      <JobImage
+                        job={app.job}
+                        className="w-16 h-16 xl:w-20 xl:h-20 rounded-xl object-cover shrink-0"
+                      />
+                      <div className="flex-1 min-w-0 flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <CardTitle className="line-clamp-1">{app.job?.title}</CardTitle>
+                          <CardDescription>{app.job?.locationText}</CardDescription>
+                        </div>
+                        <Badge variant={
+                          app.status === 'HIRED' ? 'default' :
+                          app.status === 'OFFERED' ? 'outline' :
+                          app.status === 'REJECTED' || app.status === 'OFFER_WITHDRAWN' ? 'destructive' : 'secondary'
+                        }>
+                          {app.status === 'OFFERED' ? 'OFFER RECEIVED' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
+                        </Badge>
                       </div>
-                      <Badge variant={
-                        app.status === 'HIRED' ? 'default' :
-                        app.status === 'OFFERED' ? 'outline' :
-                        app.status === 'REJECTED' || app.status === 'OFFER_WITHDRAWN' ? 'destructive' : 'secondary'
-                      }>
-                        {app.status === 'OFFERED' ? 'OFFER RECEIVED' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
-                      </Badge>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -573,14 +580,20 @@ const WorkerDashboard = () => {
                 return (
                   <Card key={app.id}>
                     <CardHeader>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <CardTitle>{app.job?.title}</CardTitle>
-                          <CardDescription>
-                            {app.job?.locationText || 'Location not specified'}
-                          </CardDescription>
+                      <div className="flex gap-4 items-start">
+                        <JobImage
+                          job={app.job}
+                          className="w-16 h-16 xl:w-20 xl:h-20 rounded-xl object-cover shrink-0"
+                        />
+                        <div className="flex-1 min-w-0 flex justify-between items-start gap-2">
+                          <div className="min-w-0">
+                            <CardTitle className="line-clamp-1">{app.job?.title}</CardTitle>
+                            <CardDescription>
+                              {app.job?.locationText || 'Location not specified'}
+                            </CardDescription>
+                          </div>
+                          <Badge>₹{app.job?.wageAmount}/{app.job?.wageType}</Badge>
                         </div>
-                        <Badge>₹{app.job?.wageAmount}/{app.job?.wageType}</Badge>
                       </div>
                     </CardHeader>
                     <CardContent>

@@ -352,7 +352,7 @@ exports.getApplications = async (req, res, next) => {
       where: { workerId: profile.id },
       include: {
         jobRole: true,
-        job: { include: { employer: true } }
+        job: { include: { employer: true, jobRoles: true } }
       },
       orderBy: { appliedAt: 'desc' }
     });

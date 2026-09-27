@@ -121,6 +121,20 @@ A single `Job` (project) can require multiple workers across different **roles**
 - `Notification` has optional `applicationId` + relation `application` (links a `JOB_OFFER` to the `JobApplication`; `onDelete: SetNull`). `createNotification(userId, type, title, message, jobId = null, applicationId = null)`.
 - Migrations: `20260905183019_add_work_status` (workStatus/workNote), `20260907064934_add_application_offered` (OFFERED status + Notification.applicationId), `20260907083950_add_offer_withdrawn` (OFFER_WITHDRAWN status).
 
+## Job & Worker Images (no DB photo fields)
+The `Job` model has **no image/photo field** — all job art is **derived at render time** from roles/titles. Workers only have `profilePhoto` (nullable), so worker images fall back to role art too.
+
+- **Helper: `getJobImage(job)`** in `frontend/src/lib/roleImages.js` — resolves an HD Unsplash image by: (1) job's primary role `job.jobRoles[0].roleName` via `getRoleImage`, (2) falling back to matching `job.title` against `TITLE_ROLE_KEYWORDS` (compact copy of the backend backfill keyword map), (3) `DEFAULT_ROLE_IMAGE`. Returns a **banner crop** (`w=900&h=420&fit=crop&crop=entropy`, swapped by internal `toBanner`) — good for wide cards; square/thumb sizing is done via `className` on the component.
+- **`getWorkerImage(worker)`** — `profilePhoto` wins, else `getRoleImage(worker.roles?.[0])`.
+- **Reusable renderer: `frontend/src/components/JobImage.jsx`** — `<JobImage job={job} className="..." />` renders the IMG with an `onError` fallback (saffron→earth gradient + Wrench icon). `className` controls size/shape (e.g. `w-16 h-16 rounded-xl object-cover`). This is THE single place job images are drawn — reuse it anywhere a job image is needed.
+- **`frontend/src/components/JobBanner.jsx`** — composes `JobImage`; takes `aspect` prop (default `aspect-[21/9]`; grid cards pass `aspect-[4/3]`) + dark gradient overlay + primary role-name label.
+- **Where used**:
+  - `WorkerDashboard` "Available Jobs": responsive grid `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` of compact cards → `<JobBanner job aspect="aspect-[4/3]">` + role chips + Apply (full-screen banners were too big; use the grid).
+  - `WorkerDashboard` "My Applications" + "History": list cards show `<JobImage>` thumbnails (`w-16 h-16 xl:w-20 xl:h-20 rounded-xl object-cover`) beside the title/status.
+  - `JobTracking` detail page: `<JobBanner>` at top of the job card.
+  - `EmployerDashboard` modals + `BrowseWorkers`: compact `WorkerThumb` (~`w-14 h-14`) using `getWorkerImage` with a role-label overlay.
+- **Backend**: `GET /api/worker/applications` (`worker.controller.js` `getMyApplications`) includes `job: { include: { employer: true, jobRoles: true } }` so `app.job.jobRoles` exists and role images resolve exactly (title-keyword fallback still covers apps without roles).
+
 ## AI Matching Algorithm
 
 ### Hard Filters
@@ -158,7 +172,7 @@ Each match includes:
 - `PUT /api/worker/applications/:id/work-status` — Worker updates own workStatus/workNote
 - `POST /api/worker/applications/:id/accept` — Accept job offer (OFFERED → HIRED, worker → BUSY)
 - `POST /api/worker/applications/:id/reject` — Decline job offer (OFFERED → REJECTED, worker stays AVAILABLE)
-- `GET /api/worker/applications` — My applications
+- `GET /api/worker/applications` — My applications (includes `jobRole` + `job.jobRoles` for role-aware job images; see Job & Worker Images)
 
 ### Employer
 - `GET /api/employer/profile` — Get profile
@@ -336,6 +350,15 @@ const result = await prisma.payment.aggregate({
 - **Cause**: `applyToJob` returned "Already applied" for ANY existing row (`@@unique([jobId, workerId])` prevents a second row).
 - **Fix**: Re-apply allowed when previous status is `REJECTED` or `WITHDRAWN` — reuses the row (status → `PENDING`, role refreshed). Other statuses still blocked. Apply is now **skill-gated**: worker needs ≥1 shared skill with the chosen/auto-picked role (`skills[]` empty ⇒ allowed).
 
+### 9. Browse Workers "Send Offer" had no job context (fixed)
+- **Symptom**: `BrowseWorkers` couldn't reliably send offers — no selected job → `effectiveRoleId`/role capacity always unresolved and offers were disabled.
+- **Fix**: `BrowseWorkers.jsx` gained a **"Select a job to send offers"** dropdown (fetches `GET /api/jobs`, auto-selects the first `OPEN`/`IN_PROGRESS` job via `setSearchParams({ job_id })`). Send Offer is disabled until a real open role slot exists (`effectiveRoleId(workerId, suggestedId)`).
+
+### 10. Landing-page CTAs jumped straight to dashboard (fixed)
+- **Symptom**: Clicking "Find Workers" / "Register as Worker" (or service cards / "Get Started Free") on the landing page went directly to the dashboard instead of `/register`.
+- **Cause**: `Landing.jsx` CTAs were `to={user ? '/dashboard' : '/register'}` and `useAuth` restored a **stale** `user` from `localStorage`, so the ternary always took the dashboard branch.
+- **Fix**: (a) `Landing.jsx` CTA links are unconditional `to="/register"`, and the public header now always shows Login/Register (no Dashboard button). (b) `AuthContext.jsx` validates the stored session on load via `GET /auth/me`: on 401 clears `localStorage` token/user, disconnects socket, `setUser(null)`; on any other error keeps the cached user; `setLoading(false)` runs in `finally`.
+
 ## Express.js Best Practices
 
 ### Error Handling
@@ -439,9 +462,23 @@ cd backend && npm run dev     # nodemon on :5000
 # Database
 cd backend && npx prisma migrate dev
 cd backend && npx prisma studio
+
+# E2E tests (needs local Postgres + dev servers running; config reuses them)
+cd frontend && npm run test:e2e
 ```
 
+## End-to-End Tests (Playwright)
+- Suite: `frontend/e2e/auth.spec.js` — 7 tests: landing CTAs (`/register` + header Login), worker/employer registration → the **correct** role dashboard (worker sees "Available Jobs" heading, employer sees "My Jobs" button), logout → login roundtrip, wrong-password error toast, unauthenticated `/dashboard` → `/login`, and a no-Dashboard-button assertion on the landing page.
+- Config: `frontend/playwright.config.js` — chromium only, `workers: 1`, `retries: 1`, `baseURL http://localhost:5173`, HTML report. `webServer` array boots **backend** (probe `GET /api/health`, which exists in `backend/src/app.js`) and **frontend**, both with `reuseExistingServer: !CI` — so a running dev stack is reused (do NOT probe with a POST-only route like `/api/auth/login` → EADDRINUSE).
+- Install browsers once: `npx playwright install chromium`. The test deps are `@playwright/test` in `frontend/package.json` (`"test:e2e": "playwright test"`).
+- **Avoid strict-mode locator clashes**: `page.getByText('Available Jobs')` matches 2 nodes (tab + heading) → use `getByRole('heading', ...)`; for employer tabs use `getByRole('button', { name: 'My Jobs' })`.
+- **`npm run lint` is pre-existing broken** (ESLint 9 but no `eslint.config.js` in the repo). Use `npm run build` + `npm run test:e2e` to verify changes instead.
+
 ## Frontend Components & Pages
+
+### Reusable Job/Worker Image Components
+- `JobImage.jsx` — `<JobImage job className>` renders the derived job image with `onError` fallback; THE shared job-image method (see Job & Worker Images).
+- `JobBanner.jsx` — wide banner composed from `JobImage`; `aspect` prop controls shape.
 
 ### New Components (Notifications/Tracking/Disputes/Reviews)
 - `NotificationBell.jsx` — Bell icon with unread count dropdown (updates instantly via socket; 30s poll is fallback). Shows relative time per item.
@@ -457,8 +494,9 @@ cd backend && npx prisma studio
 - `Disputes.jsx` — View raised disputes with status
 
 ### Updated Pages
-- `EmployerDashboard.jsx` — Added notification bell, Track Job, Dispute, Review buttons
-- `WorkerDashboard.jsx` — Added notification bell, Track Job, Dispute buttons
+- `EmployerDashboard.jsx` — Added notification bell, Track Job, Dispute, Review buttons; worker thumbnails (`WorkerThumb`) + role-chips in Browse Workers / AI Matches / Applications modals.
+- `WorkerDashboard.jsx` — Added notification bell, Track Job, Dispute buttons; "Available Jobs" is a responsive image-grid of compact cards; Applications/History tabs show job-image thumbnails.
+- `BrowseWorkers.jsx` — "Select a job to send offers" dropdown so Send Offer works reliably.
 
 ### Routes Added
 - `/notifications` — Full notification page
