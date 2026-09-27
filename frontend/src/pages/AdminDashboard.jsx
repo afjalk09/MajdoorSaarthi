@@ -5,6 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
+import { docTypeLabel } from '@/lib/docTypes';
+import { openDocument } from '@/lib/files';
+import { formatDateTime } from '@/lib/format';
 
 const AdminDashboard = () => {
   const { user } = useAuth();
@@ -49,6 +52,14 @@ const AdminDashboard = () => {
       fetchData();
     } catch (err) {
       showError('Failed to update verification');
+    }
+  };
+
+  const handleViewDoc = async (doc) => {
+    try {
+      await openDocument(doc);
+    } catch (err) {
+      showError('Could not open the document');
     }
   };
 
@@ -130,17 +141,23 @@ const AdminDashboard = () => {
                   verifications.map((doc) => (
                     <Card key={doc.id}>
                       <CardContent className="py-4">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <p className="font-medium">{doc.user?.email}</p>
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{doc.user?.email}</p>
                             <p className="text-sm text-muted-foreground">
-                              Document: {doc.doc_type.toUpperCase()}
+                              {doc.user?.role} • {docTypeLabel(doc.docType)}
                             </p>
+                            {doc.docNumber && (
+                              <p className="text-sm font-mono">{doc.docNumber}</p>
+                            )}
                             <p className="text-xs text-muted-foreground">
-                              Uploaded: {new Date(doc.created_at).toLocaleDateString()}
+                              Uploaded: {formatDateTime(doc.createdAt)} • {doc.fileName || 'file'}
                             </p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 shrink-0">
+                            <Button size="sm" variant="outline" onClick={() => handleViewDoc(doc)}>
+                              View
+                            </Button>
                             <Button size="sm" onClick={() => handleVerify(doc.id, 'approved')}>
                               Approve
                             </Button>
@@ -172,9 +189,9 @@ const AdminDashboard = () => {
                       <Card key={worker.id}>
                         <CardHeader className="pb-2">
                           <div className="flex justify-between items-start">
-                            <CardTitle className="text-lg">{worker.full_name}</CardTitle>
-                            <Badge variant={worker.is_verified ? 'default' : 'secondary'}>
-                              {worker.is_verified ? 'Verified' : 'Unverified'}
+                            <CardTitle className="text-lg">{worker.fullName}</CardTitle>
+                            <Badge variant={worker.isVerified ? 'default' : 'secondary'}>
+                              {worker.isVerified ? 'Verified' : 'Unverified'}
                             </Badge>
                           </div>
                           <CardDescription>{worker.user?.email}</CardDescription>
@@ -182,9 +199,12 @@ const AdminDashboard = () => {
                         <CardContent>
                           <div className="text-sm space-y-1">
                             <p>Roles: {worker.roles?.join(', ') || 'None'}</p>
-                            <p>Experience: {worker.experience_years} years</p>
-                            <p>Reliability: {worker.reliability_score}/100</p>
-                            <p>Wage: ₹{worker.expected_wage_min}-{worker.expected_wage_max}/{worker.wage_type}</p>
+                            <p>Experience: {worker.experienceYears ?? 0} years</p>
+                            <p>Reliability: {worker.reliabilityScore ?? 0}/100</p>
+                            <p>
+                              Wage: ₹{worker.expectedWageMin ?? '-'}-{worker.expectedWageMax ?? '-'}/
+                              {worker.wageType}
+                            </p>
                           </div>
                         </CardContent>
                       </Card>
@@ -211,17 +231,17 @@ const AdminDashboard = () => {
                         <div className="flex justify-between items-start">
                           <div>
                             <h4 className="font-semibold">{job.title}</h4>
-                            <p className="text-sm text-muted-foreground">{job.location_text}</p>
-                            <p className="text-sm">Employer: {job.employer?.display_name}</p>
+                            <p className="text-sm text-muted-foreground">{job.locationText}</p>
+                            <p className="text-sm">Employer: {job.employer?.displayName}</p>
                           </div>
                           <div className="text-right">
                             <Badge variant={
-                              job.status === 'open' ? 'default' :
-                              job.status === 'completed' ? 'secondary' : 'outline'
+                              job.status === 'OPEN' ? 'default' :
+                              job.status === 'COMPLETED' ? 'secondary' : 'outline'
                             }>
                               {job.status}
                             </Badge>
-                            <p className="text-sm mt-1">₹{job.wage_amount}/{job.wage_type}</p>
+                            <p className="text-sm mt-1">₹{job.wageAmount}/{job.wageType}</p>
                           </div>
                         </div>
                       </CardContent>

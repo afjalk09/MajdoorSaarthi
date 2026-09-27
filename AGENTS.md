@@ -45,6 +45,7 @@
 ### Environment Setup
 - Backend `.env` required: `DATABASE_URL`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `PORT`, `FRONTEND_URL`
 - Frontend proxy in `vite.config.js`: `/api` → `http://localhost:5000`
+- Frontend env (see `frontend/.env.example`): `VITE_SOCKET_URL` (socket origin) and `VITE_ASSET_URL` (backend origin for **all** REST calls; leave blank in dev so the Vite proxy handles `/api`, set to the Render URL in prod — there is no `vercel.json` rewrite, so relative URLs would 404 on the CDN host)
 - Database: PostgreSQL on `localhost:5432` (default) or custom port
 
 ## Database Models
@@ -67,6 +68,8 @@ Jobs → Milestones (1:many)
 Jobs → Disputes (1:many)
 Jobs → Reviews (1:many)
 ```
+
+`Document` links to `User` by `userId` only — it has **no relation to `EmployerProfile`/`WorkerProfile`**. Contractor business details live as flat nullable columns on `EmployerProfile` itself (see Employer Business Verification); the 3 required uploads are `Document` rows, derived on read rather than linked by a foreign key.
 
 ### Multi-Worker Project (Job Roles) Model
 A single `Job` (project) can require multiple workers across different **roles**.
@@ -135,6 +138,49 @@ The `Job` model has **no image/photo field** — all job art is **derived at ren
   - `EmployerDashboard` modals + `BrowseWorkers`: compact `WorkerThumb` (~`w-14 h-14`) using `getWorkerImage` with a role-label overlay.
 - **Backend**: `GET /api/worker/applications` (`worker.controller.js` `getMyApplications`) includes `job: { include: { employer: true, jobRoles: true } }` so `app.job.jobRoles` exists and role images resolve exactly (title-keyword fallback still covers apps without roles).
 
+## Employer Verification (ALL TYPES) + Business Block (CONTRACTOR / COMPANY)
+
+Every employer must supply **PAN, Aadhaar, contact number and a registered address**, plus the **PAN + Aadhaar uploads**. `CONTRACTOR`/`COMPANY` additionally supply the legal business block and an **address-proof** upload. The business columns stay `NULL` for `INDIVIDUAL`.
+
+### Fields (`EmployerProfile`, all nullable)
+Shared (all types, migration `20260915090000_add_employer_contractor_details`): `panNumber`, `aadhaarNumber`, `registeredAddressLine1/Line2/City/State/Pincode`, `profileComplete Boolean @default(false)`. Plus `contactMobile` (migration `20260915120000_add_employer_contact_mobile`).
+
+Business-only (`20260915090000`): `legalBusinessName`, `entityType EntityType?` (`PROPRIETORSHIP | PARTNERSHIP | LLP | PRIVATE_LIMITED`), `signatoryName`, `signatoryDesignation`, `signatoryMobile`, `signatoryEmail`, `addressProofDocType` (**derived server-side from the uploaded proof document — never trust the client**).
+
+`displayName` remains the public-facing name shown on job cards; `legalBusinessName` is the tax-document name shown in the profile view and to admins. They are intentionally separate.
+
+### Validation (`backend/src/lib/employerValidation.js`)
+Two field sets, each entry mapping request key → Prisma column and declaring `required` / `test` / `enum`:
+- **`COMMON_FIELDS`** — `pan_number`, `aadhaar_number`, `contact_mobile`, `registered_address_*`. Required for **every** account type.
+- **`BUSINESS_ONLY_FIELDS`** — `legal_business_name`, `entity_type`, `signatory_*`. Required **only** for `CONTRACTOR`/`COMPANY` (an individual is their own signatory).
+
+`validateProfileFields(body, isBusiness)` returns `{ data, fields }`; `employer.controller.js` responds `400 { success:false, message, fields:[{field,message}] }` so the UI can highlight individual inputs. `BUSINESS_ONLY_COLUMNS` is what gets nulled on a switch to `INDIVIDUAL`. Formats: PAN `/^[A-Z]{5}[0-9]{4}[A-Z]$/`, Aadhaar 12 digits, mobile `/^[6-9]\d{9}$/`, PIN 6 digits, email.
+
+### Save ordering (CRITICAL)
+Mandatory uploads must exist **before** the profile PUT validates. The frontend therefore **uploads first, then PUTs** (`EmployerProfile.jsx` `handleSave`). This is why `profileComplete` exists: the document-presence check only runs while `profileComplete === false`, so later edits never force an employer to re-upload already-approved documents. On success the backend sets `addressProofDocType` from the newest non-rejected proof document and sets `profileComplete = true`.
+
+**Type-change exception**: `needsDocuments = !existing?.profileComplete || (typeChanged && isBusiness)`. Without the second clause an `INDIVIDUAL` could complete their profile (no address proof) and then switch to `CONTRACTOR` while inheriting `profileComplete === true`, skipping the address proof entirely. Only the *presence* of each doc is re-checked, so already-uploaded PAN/Aadhaar are not demanded again.
+
+Switching to `INDIVIDUAL` **clears the business-only block** (legal name, entity type, signatory, `addressProofDocType`) but **keeps** PAN, Aadhaar, `contactMobile` and the registered address.
+
+### Verification gating (`admin.controller.js` `recomputeEmployerVerification`)
+Approving a single document used to set `isVerified = true` immediately. Now **PAN + AADHAAR must both be `APPROVED`** for any employer, and a business employer *additionally* needs one address proof approved. `recomputeEmployerVerification` is called for **both** approve and reject, so a rejection re-derives `false` rather than blanket-setting it.
+
+### Required documents
+- `INDIVIDUAL`: `PAN` + `AADHAAR`
+- `CONTRACTOR`/`COMPANY`: `PAN` + `AADHAAR` + one `ADDRESS_PROOF_*` (`REQUIRED_BUSINESS_DOC_TYPES` in `employerDocs.js`; the frontend derives the same list in `EmployerProfile.jsx` `requiredDocTypes`).
+
+## Verification Document Uploads
+- **Middleware: `backend/src/middleware/upload.middleware.js`** — multer 2.x, `diskStorage` → `backend/uploads`, filename `<userId>-<ts>-<rand><ext>`, `fileFilter` for `image/jpeg|png|webp` + `application/pdf`, `limits { fileSize: 5MB, files: 1 }`. Exports `uploadSingleFile` (field name **`file`**) and `handleUploadErrors` (normalizes multer errors into the standard `{ success, message }` envelope).
+- **Multer must run AFTER `authenticate`** in the route chain — the stored filename embeds `req.user.id`, and the route's `authorize('employer')` also relies on `req.user` (see known bug #4).
+- **`DocType`** was extended with `ADDRESS_PROOF_UTILITY_BILL`, `ADDRESS_PROOF_RENT_AGREEMENT`, `ADDRESS_PROOF_GST_CERTIFICATE`. The `ADDRESS_PROOF_` prefix is what identifies proof documents; exactly one is required.
+- **`POST /api/employer/documents`** validates `doc_type` against an allowlist (an unknown value used to become a Prisma 500) and uses **replace semantics**: re-uploading a `doc_type` deletes the caller's prior `PENDING` row of that type and unlinks the old file, so re-uploads after a rejection don't pile up.
+- **`/uploads` is NOT served statically** (the mount was removed from `app.js`). PAN/Aadhaar files are streamed through `GET /api/employer/documents/:id/file`, which allows only the owner or an `ADMIN`. Because that route needs the `Authorization` header, the frontend must fetch it as a blob — use `openDocument()` / `downloadDocument()` from `frontend/src/lib/files.js`; a plain `<a href>` returns 401.
+- **`api.js` hardcodes `Content-Type: application/json`** — override per request with `headers: { 'Content-Type': 'multipart/form-data' }` so axios sets the boundary.
+- **Shared vocabularies**: `backend/src/lib/employerDocs.js` (entity types, doc types, `REQUIRED_BUSINESS_DOC_TYPES`, `isBusinessEmployerType`) and `frontend/src/lib/docTypes.js` (labels, options, `docTypeLabel`, upload limits). Keep both in sync with the Prisma enums.
+- **Frontend**: `frontend/src/components/FileUpload.jsx` is the single reusable picker (dashed dropzone label, `sr-only` file input, client-side extension/size check, status `Badge`, view/replace). `EmployerProfile.jsx` renders the business block as four titled sub-cards.
+- **Known limitation**: deleting a user cascades their `Document` rows but leaves the files on disk — there is no account-deletion endpoint, so no cleanup job exists yet.
+
 ## AI Matching Algorithm
 
 ### Hard Filters
@@ -175,9 +221,11 @@ Each match includes:
 - `GET /api/worker/applications` — My applications (includes `jobRole` + `job.jobRoles` for role-aware job images; see Job & Worker Images)
 
 ### Employer
-- `GET /api/employer/profile` — Get profile
-- `PUT /api/employer/profile` — Update profile
-- `POST /api/employer/documents` — Upload verification docs
+- `GET /api/employer/profile` — Get profile (404 when not created yet — the UI relies on this)
+- `PUT /api/employer/profile` — Create/update profile (upsert). **Hard-validates the business block for `CONTRACTOR`/`COMPANY`** (see Employer Business Verification below)
+- `GET /api/employer/documents` — My verification documents (newest first)
+- `GET /api/employer/documents/:id/file` — Auth-gated file stream (owner or `ADMIN` only; must be fetched with the Bearer token, so use `openDocument()` from `frontend/src/lib/files.js` — a plain `<a href>` gets 401)
+- `POST /api/employer/documents` — **Real multipart upload** (field name `file` + `doc_type` + optional `doc_number`); see Verification Document Uploads below
 - `GET /api/employer/workers?job_id=` — Browse workers by location
 
 ### Jobs
@@ -359,6 +407,15 @@ const result = await prisma.payment.aggregate({
 - **Cause**: `Landing.jsx` CTAs were `to={user ? '/dashboard' : '/register'}` and `useAuth` restored a **stale** `user` from `localStorage`, so the ternary always took the dashboard branch.
 - **Fix**: (a) `Landing.jsx` CTA links are unconditional `to="/register"`, and the public header now always shows Login/Register (no Dashboard button). (b) `AuthContext.jsx` validates the stored session on load via `GET /auth/me`: on 401 clears `localStorage` token/user, disconnects socket, `setUser(null)`; on any other error keeps the cached user; `setLoading(false)` runs in `finally`.
 
+### 11. Admin dashboard read snake_case Prisma output (fixed)
+- **Symptom**: The Verifications tab threw `Cannot read properties of undefined (reading 'toUpperCase')` as soon as any document row existed, so document review was impossible. The Workers and Jobs tabs rendered blank names/numbers for the same reason.
+- **Cause**: `AdminDashboard.jsx` read `doc.doc_type`, `doc.created_at`, `worker.full_name`, `worker.is_verified`, `worker.experience_years`, `worker.reliability_score`, `worker.expected_wage_min/max`, `worker.wage_type`, `job.location_text`, `job.employer.display_name`, `job.wage_amount`, `job.wage_type` — all snake_case, but Prisma returns camelCase.
+- **Fix**: Switched every one of these to camelCase, and added a `View` button (via `openDocument`) plus the doc-number line so admins can actually inspect the uploaded file. See Verification Document Uploads above.
+
+### 12. Employer document upload was a fake (fixed)
+- **Symptom**: "Upload your PAN/Aadhaar" was impossible — there was no file input anywhere in the frontend, `multer` was installed but never imported, `backend/uploads/` was empty, and `POST /employer/documents` only stored a client-supplied `file_url` string with no mime/size checks.
+- **Fix**: Added real multer upload middleware, an auth-gated file stream, `GET /employer/documents`, and the `FileUpload` component. See Verification Document Uploads.
+
 ## Express.js Best Practices
 
 ### Error Handling
@@ -480,6 +537,11 @@ cd frontend && npm run test:e2e
 - `JobImage.jsx` — `<JobImage job className>` renders the derived job image with `onError` fallback; THE shared job-image method (see Job & Worker Images).
 - `JobBanner.jsx` — wide banner composed from `JobImage`; `aspect` prop controls shape.
 
+### Verification / File Components
+- `FileUpload.jsx` — `<FileUpload id label file onSelect existing required />`; THE single document picker (see Verification Document Uploads). Shows the picked file + size, the existing document's status badge, and View/Replace.
+- `lib/docTypes.js` — entity/address-proof/doc-type labels + options, upload limits, `isDocumentOnFile()`. Mirror of `backend/src/lib/employerDocs.js`.
+- `lib/files.js` — `openDocument(doc)` / `downloadDocument(doc)` fetch a document as a **blob with the Bearer token** and return an object URL. Never link a document file directly.
+
 ### New Components (Notifications/Tracking/Disputes/Reviews)
 - `NotificationBell.jsx` — Bell icon with unread count dropdown (updates instantly via socket; 30s poll is fallback). Shows relative time per item.
 - `Notifications.jsx` — Full notification list; each card shows relative + absolute timestamp (e.g. `3m ago • Sep 8, 2026, 4:12 PM`).
@@ -497,6 +559,8 @@ cd frontend && npm run test:e2e
 - `EmployerDashboard.jsx` — Added notification bell, Track Job, Dispute, Review buttons; worker thumbnails (`WorkerThumb`) + role-chips in Browse Workers / AI Matches / Applications modals.
 - `WorkerDashboard.jsx` — Added notification bell, Track Job, Dispute buttons; "Available Jobs" is a responsive image-grid of compact cards; Applications/History tabs show job-image thumbnails.
 - `BrowseWorkers.jsx` — "Select a job to send offers" dropdown so Send Offer works reliably.
+- `EmployerProfile.jsx` — **Rewritten**: shadcn `Select` for account type. PAN & Aadhaar, contact number and the registered address are **shown for every type**; only Legal Business Details and Authorized Signatory are gated behind `CONTRACTOR`/`COMPANY` (the address-proof dropdown and upload is business-only too). Inline per-field errors, a rejected-documents banner, and read-only cards for business details, signatory, address and document statuses (Aadhaar masked).
+- `AdminDashboard.jsx` — Verifications tab now reads camelCase, shows the doc number + upload time and a **View** button; Workers/Jobs tabs fixed to camelCase too.
 
 ### Routes Added
 - `/notifications` — Full notification page

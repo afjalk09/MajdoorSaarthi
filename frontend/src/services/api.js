@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// Dev: VITE_ASSET_URL is blank, so '/api' is used and the Vite proxy forwards to
+// the backend. Production (Vercel static host + Render API) has no proxy, so the
+// backend origin must be absolute - otherwise every request 404s on the CDN host.
+const ASSET_BASE = (import.meta.env.VITE_ASSET_URL || '').replace(/\/$/, '');
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: ASSET_BASE ? `${ASSET_BASE}/api` : '/api',
   headers: {
     'Content-Type': 'application/json'
   }

@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const path = require('path');
 
 const app = express();
 
@@ -14,8 +13,9 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files for uploads
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Uploaded verification documents are NOT served statically - they contain PAN /
+// Aadhaar and are streamed through the auth-gated route in employer.routes.js
+// (GET /api/employer/documents/:id/file).
 
 // Health check
 app.get('/api/health', (req, res) => {

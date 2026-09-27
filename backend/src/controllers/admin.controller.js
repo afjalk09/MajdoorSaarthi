@@ -1,4 +1,30 @@
 const prisma = require('../lib/prisma');
+const { ADDRESS_PROOF_TYPES, isBusinessEmployerType } = require('../lib/employerDocs');
+
+/**
+ * An employer is verified once their PAN and Aadhaar are BOTH approved. Business
+ * (contractor/company) employers additionally need one address proof on file.
+ * Previously a single approved document verified anyone, which is no longer
+ * enough now that individuals also submit PAN + Aadhaar.
+ */
+const recomputeEmployerVerification = async (userId) => {
+  const employer = await prisma.employerProfile.findUnique({ where: { userId } });
+  if (!employer) return null;
+
+  const documents = await prisma.document.findMany({
+    where: { userId, status: 'APPROVED' }
+  });
+  const approvedTypes = new Set(documents.map((d) => d.docType));
+
+  const hasIdentity = ['PAN', 'AADHAAR'].every((t) => approvedTypes.has(t));
+  const hasAddressProof = !isBusinessEmployerType(employer.employerType)
+    || ADDRESS_PROOF_TYPES.some((t) => approvedTypes.has(t));
+
+  return prisma.employerProfile.update({
+    where: { userId },
+    data: { isVerified: Boolean(hasIdentity && hasAddressProof) }
+  });
+};
 
 exports.getPendingVerifications = async (req, res, next) => {
   try {
@@ -23,28 +49,28 @@ exports.reviewDocument = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Document not found' });
     }
 
+    const reviewStatus = String(status || '').toUpperCase();
     const updatedDocument = await prisma.document.update({
-      where: { id: req.params.id },
+      where: { id: document.id },
       data: {
-        status: status.toUpperCase(),
+        status: reviewStatus,
         reviewedBy: req.user.id,
         reviewedAt: new Date()
       }
     });
 
-    if (status.toUpperCase() === 'APPROVED') {
+    if (reviewStatus === 'APPROVED' || reviewStatus === 'REJECTED') {
       const user = await prisma.user.findUnique({ where: { id: document.userId } });
 
-      if (user.role === 'WORKER') {
+      if (user.role === 'WORKER' && reviewStatus === 'APPROVED') {
         await prisma.workerProfile.update({
           where: { userId: user.id },
           data: { isVerified: true }
         });
       } else if (user.role === 'EMPLOYER') {
-        await prisma.employerProfile.update({
-          where: { userId: user.id },
-          data: { isVerified: true }
-        });
+        // Derives verification from the employer's full required set, so an
+        // approval can verify and a rejection can un-verify
+        await recomputeEmployerVerification(user.id).catch(() => {});
       }
     }
 
