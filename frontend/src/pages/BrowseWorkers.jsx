@@ -6,58 +6,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
-import { getWorkerImage, getRoleImage } from '@/lib/roleImages';
+import { formatExpectedWage } from '@/lib/format';
+import JobRoleChips from '@/components/JobRoleChips';
+import WorkerRoleChips from '@/components/WorkerRoleChips';
+import WorkerBanner from '@/components/WorkerBanner';
+import WorkerDetailsDialog from '@/components/WorkerDetailsDialog';
+import VerifiedBadge from '@/components/VerifiedBadge';
 import { motion } from 'framer-motion';
-import { MapPin, Star, BadgeCheck, Send, Wrench } from 'lucide-react';
+import { MapPin, Send } from 'lucide-react';
 import { DashboardSkeleton } from '@/components/LoadingSkeleton';
-
-const WorkerBanner = ({ worker }) => {
-  const roles = worker?.roles || [];
-  const primaryRole = roles[0];
-  const img = getWorkerImage(worker);
-  const [error, setError] = useState(false);
-  const initials = (worker?.fullName || 'W')
-    .split(' ')
-    .map(w => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-
-  return (
-    <div className="relative aspect-[4/3] overflow-hidden bg-gradient-to-br from-saffron-100 to-earth-100">
-      {!error && img ? (
-        <img
-          src={img}
-          alt={worker.fullName}
-          className="w-full h-full object-cover"
-          onError={() => setError(true)}
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <span className="font-display font-bold text-3xl text-saffron-600">{initials}</span>
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-      {primaryRole && (
-        <span className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 text-white font-display font-semibold text-sm truncate">
-            <Wrench size={14} className="text-gold-300" />
-            {primaryRole}
-          </span>
-        </span>
-      )}
-      <div className="absolute top-3 right-3">
-        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-black/40 backdrop-blur-sm text-gold-300 text-xs font-semibold">
-          <Star size={12} className="fill-gold-400 text-gold-400" />
-          {worker.reliabilityScore || 0}/5
-        </span>
-      </div>
-    </div>
-  );
-};
 
 const BrowseWorkers = () => {
   const { user } = useAuth();
@@ -86,6 +44,9 @@ const BrowseWorkers = () => {
   // Role selection per worker
   const [hireRoles, setHireRoles] = useState({});
   const [hiring, setHiring] = useState(null);
+
+  // Worker details dialog
+  const [detailWorker, setDetailWorker] = useState(null);
 
   const setHireRole = (workerId, roleId) => {
     setHireRoles(prev => ({ ...prev, [workerId]: roleId }));
@@ -282,19 +243,7 @@ const BrowseWorkers = () => {
             </CardHeader>
             {job.jobRoles && job.jobRoles.length > 0 && (
               <CardContent className="pt-0">
-                <div className="flex flex-wrap gap-2">
-                  {job.jobRoles.map((r, i) => (
-                    <Badge key={i} variant="secondary">
-                      <img
-                        src={getRoleImage(r.roleName)}
-                        alt={r.roleName}
-                        className="w-3.5 h-3.5 rounded-full object-cover mr-1"
-                        onError={e => { e.currentTarget.style.display = 'none'; }}
-                      />
-                      {r.roleName}: {r.filledCount || 0}/{r.count}
-                    </Badge>
-                  ))}
-                </div>
+                <JobRoleChips jobRoles={job.jobRoles} variant="badge" showImage showCount />
               </CardContent>
             )}
           </Card>
@@ -370,12 +319,10 @@ const BrowseWorkers = () => {
                         <h4 className="font-display font-semibold text-lg text-warm-900 truncate">
                           {worker.fullName}
                         </h4>
-                        {worker.isVerified && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-earth-50 text-earth-600 text-xs font-medium border border-earth-200/60 shrink-0">
-                            <BadgeCheck size={12} />
-                            Verified
-                          </span>
-                        )}
+                        <VerifiedBadge
+                          verified={worker.isVerified}
+                          className="shrink-0 px-2 py-0.5 rounded-full bg-earth-50 text-earth-600 border border-earth-200/60"
+                        />
                       </div>
 
                       <p className="text-sm text-warm-500 flex items-center gap-1 mb-2.5">
@@ -384,55 +331,55 @@ const BrowseWorkers = () => {
                       </p>
 
                       {/* Role chips */}
-                      {(worker.roles || []).length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-2.5">
-                          {worker.roles.map((r, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-saffron-50 text-saffron-600 text-xs font-medium border border-saffron-100"
-                            >
-                              <img
-                                src={getRoleImage(r)}
-                                alt=""
-                                className="w-3.5 h-3.5 rounded-full object-cover"
-                                onError={e => { e.currentTarget.style.display = 'none'; }}
-                              />
-                              {r}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      <WorkerRoleChips
+                        roles={worker.roles}
+                        variant="badge"
+                        showImage
+                        className="mb-2.5"
+                      />
 
                       <p className="text-sm text-warm-500 mb-3">
                         <span className="font-medium text-warm-700">
                           {worker.experienceYears || 0} yrs exp
-                        </span>{' '}
-                        | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
+                        </span>
+                        {formatExpectedWage(worker) && <> | Wage: {formatExpectedWage(worker)}</>}
                       </p>
 
-                      {job && (
-                        <div className="flex flex-col gap-2 mt-auto pt-3 border-t border-warm-100">
-                          {renderRoleSelect(worker.id)}
-                          <Button
-                            size="sm"
-                            onClick={() => handleHire(worker.id)}
-                            disabled={hiring === worker.id || !effectiveRoleId(worker.id)}
-                            className="w-full bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50"
-                          >
-                            {hiring === worker.id ? (
-                              <span className="flex items-center gap-2">
-                                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Sending...
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1.5">
-                                <Send size={14} />
-                                Send Offer
-                              </span>
-                            )}
-                          </Button>
-                        </div>
-                      )}
+                      {/* Details is always available — it does not need a selected job */}
+                      <div className="flex items-end gap-2 mt-auto pt-3 border-t border-warm-100">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 border-warm-200"
+                          onClick={() => setDetailWorker(worker.id)}
+                        >
+                          Details
+                        </Button>
+
+                        {job && (
+                          <>
+                            <div className="flex-1 min-w-0">{renderRoleSelect(worker.id)}</div>
+                            <Button
+                              size="sm"
+                              onClick={() => handleHire(worker.id)}
+                              disabled={hiring === worker.id || !effectiveRoleId(worker.id)}
+                              className="shrink-0 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                            >
+                              {hiring === worker.id ? (
+                                <span className="flex items-center gap-2">
+                                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                  Sending...
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1.5">
+                                  <Send size={14} />
+                                  Send Offer
+                                </span>
+                              )}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -473,6 +420,12 @@ const BrowseWorkers = () => {
           </>
         )}
       </main>
+
+      <WorkerDetailsDialog
+        workerId={detailWorker}
+        open={!!detailWorker}
+        onOpenChange={(o) => !o && setDetailWorker(null)}
+      />
     </div>
   );
 };

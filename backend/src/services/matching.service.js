@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const { normalizeReliability, toStarScore } = require('../lib/reliability');
 
 const normalizeLocation = (location) => (location || '').trim().toLowerCase();
 
@@ -10,7 +11,11 @@ const generateReasons = (worker, job, scores) => {
     reasons.push(`General worker — no exact role match`);
   }
   reasons.push(`${worker.experienceYears || 0} years experience`);
-  reasons.push(`Reliability: ${worker.reliabilityScore || 0}/100`);
+
+  // The stored column is dual-scale, so render it through the star helper
+  // rather than assuming 0-100 — a raw 0-5 row used to read as "5/100".
+  const stars = toStarScore(worker.reliabilityScore);
+  reasons.push(stars ? `Reliability: ${stars}/5` : 'Reliability: not rated');
 
   const avgExpected = ((worker.expectedWageMin || 0) + (worker.expectedWageMax || 0)) / 2;
   reasons.push(`Wage ₹${job.wageAmount} vs expected ₹${Math.round(avgExpected)}`);
@@ -48,7 +53,10 @@ exports.findMatches = async (job) => {
 
     const experienceScore = Math.min(((worker.experienceYears || 0) / 10) * 100, 100);
 
-    const reliabilityScore = worker.reliabilityScore || 0;
+    // Must be on the 0-100 scale before it is weighted, otherwise a legacy
+    // raw 0-5 row contributes ~1.2 instead of ~24 to the total and silently
+    // buries those workers below everyone else.
+    const reliabilityScore = normalizeReliability(worker.reliabilityScore);
 
     const avgExpected = ((worker.expectedWageMin || 0) + (worker.expectedWageMax || 0)) / 2;
     const wageDiff = Math.abs(job.wageAmount - avgExpected);
@@ -69,9 +77,14 @@ exports.findMatches = async (job) => {
     matches.push({
       worker_id: worker.id,
       full_name: worker.fullName,
+      profile_photo: worker.profilePhoto,
       roles: worker.roles || [],
       experience_years: worker.experienceYears,
       reliability_score: worker.reliabilityScore,
+      is_verified: worker.isVerified,
+      expected_wage_min: worker.expectedWageMin,
+      expected_wage_max: worker.expectedWageMax,
+      wage_type: worker.wageType,
       location_text: worker.locationText,
       role_match: roleMatch.roleName,
       match_score: Math.round(totalScore * 100) / 100,

@@ -2,6 +2,8 @@ const prisma = require('../lib/prisma');
 const { createNotification } = require('./notification.controller');
 const { releaseWorkerFromJob, recomputeJobFill } = require('./job.controller');
 const roleService = require('../services/role.service');
+const { roleCapacityInclude, withRoleCapacity } = require('../lib/jobRoles');
+const { publicEmployerInclude } = require('../lib/publicEmployer');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -134,9 +136,14 @@ exports.getAvailableJobs = async (req, res, next) => {
 
     const jobs = await prisma.job.findMany({
       where,
-      include: { employer: true, jobRoles: true },
+      // Workers only ever see the employer's public-safe fields.
+      include: { ...publicEmployerInclude, jobRoles: roleCapacityInclude },
       orderBy: { createdAt: 'desc' }
     });
+
+    // Live per-role capacity, so "N needed" is never read from a stale
+    // filledCount column (same rule the Apply dialog relies on).
+    jobs.forEach(job => { job.jobRoles = withRoleCapacity(job.jobRoles); });
 
     // Role-aware sort: jobs the worker's profile roles match are shown first, then by recency.
     const workerRoles = (profile.roles || []).map(r => r.toLowerCase());
@@ -160,6 +167,31 @@ exports.getAvailableJobs = async (req, res, next) => {
     });
 
     res.json({ success: true, data: jobs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Worker-facing job detail. Deliberately narrower than GET /api/jobs/:id: it
+// returns no reviews, no applications and no hiredWorkers, so a browsing worker
+// cannot read coworkers' names, work notes or other workers' review bodies.
+// No status filter — a worker must be able to inspect their own COMPLETED or
+// CANCELLED jobs too.
+exports.getJobDetail = async (req, res, next) => {
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: req.params.id },
+      include: { ...publicEmployerInclude, jobRoles: roleCapacityInclude }
+    });
+
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    res.json({
+      success: true,
+      data: { ...job, jobRoles: withRoleCapacity(job.jobRoles) }
+    });
   } catch (error) {
     next(error);
   }
@@ -352,7 +384,9 @@ exports.getApplications = async (req, res, next) => {
       where: { workerId: profile.id },
       include: {
         jobRole: true,
-        job: { include: { employer: true, jobRoles: true } }
+        // jobRoles are kept (role-aware job images need them); the employer is
+        // narrowed to its public-safe fields.
+        job: { include: { ...publicEmployerInclude, jobRoles: true } }
       },
       orderBy: { appliedAt: 'desc' }
     });

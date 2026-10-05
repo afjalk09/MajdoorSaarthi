@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import NotificationBell from '@/components/NotificationBell';
 import { showSuccess, showError } from '@/lib/toast';
 import DisputeForm from '@/components/DisputeForm';
@@ -16,41 +17,12 @@ import JobReviewPanel from '@/components/JobReviewPanel';
 import PendingReviewsBanner from '@/components/PendingReviewsBanner';
 import ReviewPromptDialog from '@/components/ReviewPromptDialog';
 import RoleSelect from '@/components/RoleSelect';
-import { getWorkerImage, getRoleImage } from '@/lib/roleImages';
+import WorkerBanner from '@/components/WorkerBanner';
+import WorkerRoleChips from '@/components/WorkerRoleChips';
+import WorkerDetailsDialog from '@/components/WorkerDetailsDialog';
+import { formatExpectedWage, formatReliability, formatJobSchedule } from '@/lib/format';
+import { applicationStatusLabelForEmployer } from '@/lib/job';
 import { MapPin } from 'lucide-react';
-
-const WorkerThumb = ({ worker }) => {
-  const [error, setError] = useState(false);
-  const img = getWorkerImage(worker);
-  const primaryRole = (worker?.roles || [])[0];
-  const initials = (worker?.fullName || 'W')
-    .split(' ')
-    .map(w => w[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
-
-  return (
-    <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-saffron-100 to-earth-100 border border-warm-200 flex items-center justify-center">
-      {!error && img ? (
-        <img
-          src={img}
-          alt={worker?.fullName}
-          className="w-full h-full object-cover"
-          onError={() => setError(true)}
-          loading="lazy"
-        />
-      ) : (
-        <span className="font-display font-bold text-saffron-600">{initials}</span>
-      )}
-      {primaryRole && (
-        <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-1 pt-2 pb-0.5 text-[8px] text-white text-center truncate font-medium">
-          {primaryRole}
-        </span>
-      )}
-    </div>
-  );
-};
 
 const EmployerDashboard = () => {
   const { user, logout } = useAuth();
@@ -95,19 +67,9 @@ const EmployerDashboard = () => {
   // Chosen role id per worker being offered a job (keyed by workerId)
   const [hireRoles, setHireRoles] = useState({});
 
-  const formatSchedule = (job) => {
-    if (!job.startDate && !job.startTime) return null;
-    const parts = [];
-    if (job.startDate) {
-      const start = new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      const end = job.endDate ? new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
-      parts.push(end && end !== start ? `${start} – ${end}` : start);
-    }
-    if (job.startTime) {
-      parts.push(`${job.startTime} – ${job.endTime || '?'}`);
-    }
-    return parts.join(' | ');
-  };
+  // Worker details dialog, shared by all three modals below. `context` carries
+  // the application/hired-worker record so the dialog can show job context.
+  const [detailWorker, setDetailWorker] = useState(null);
 
   const setHireRole = (workerId, roleId) => {
     setHireRoles(prev => ({ ...prev, [workerId]: roleId }));
@@ -611,9 +573,9 @@ const EmployerDashboard = () => {
                       </div>
                     )}
 
-                    {formatSchedule(job) && (
+                    {formatJobSchedule(job) && (
                       <p className="text-sm text-muted-foreground mb-2">
-                        Schedule: {formatSchedule(job)}
+                        Schedule: {formatJobSchedule(job)}
                       </p>
                     )}
 
@@ -704,9 +666,9 @@ const EmployerDashboard = () => {
                           Completed: {job.updatedAt ? new Date(job.updatedAt).toLocaleDateString() : 'N/A'}
                         </span>
                       </div>
-                      {formatSchedule(job) && (
+                      {formatJobSchedule(job) && (
                         <p className="text-sm text-muted-foreground mb-3">
-                          Schedule: {formatSchedule(job)}
+                          Schedule: {formatJobSchedule(job)}
                         </p>
                       )}
                       {detail ? (
@@ -739,259 +701,260 @@ const EmployerDashboard = () => {
         )}
 
         {/* Matches Modal */}
-        {showMatches && selectedJob && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle>AI Matched Workers</CardTitle>
-                    <CardDescription>For: {selectedJob.title}</CardDescription>
+        <Dialog open={showMatches && !!selectedJob} onOpenChange={(o) => !o && setShowMatches(false)}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="pr-6">AI Matched Workers</DialogTitle>
+              <DialogDescription>For: {selectedJob?.title}</DialogDescription>
+            </DialogHeader>
+
+            {matches.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">
+                No matching workers found. Try adjusting your job requirements.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {matches.map((match) => (
+                  <div key={match.worker_id} className="border rounded-xl p-4 flex flex-col">
+                    <div className="flex items-start gap-3 mb-2">
+                      <WorkerBanner
+                        worker={{
+                          fullName: match.full_name,
+                          roles: match.roles,
+                          locationText: match.location_text,
+                          profilePhoto: match.profile_photo,
+                          reliabilityScore: match.reliability_score
+                        }}
+                        size="sm"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-semibold truncate">{match.full_name}</h4>
+                          <Badge className="bg-gradient-to-r from-saffron-500 to-saffron-600">{match.match_score}% match</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <MapPin size={11} className="text-saffron-500" />
+                          {match.location_text}
+                        </p>
+                        {(match.roles || []).length > 0 && (
+                          <WorkerRoleChips roles={match.roles} className="mt-1.5" />
+                        )}
+                      </div>
+                    </div>
+                    <div className="mb-2">
+                      {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                    </div>
+                    <ul className="text-xs text-muted-foreground mb-3 flex-1">
+                      {match.match_reasons?.map((reason, i) => (
+                        <li key={i}>• {reason}</li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => setDetailWorker({ workerId: match.worker_id, context: null })}
+                      >
+                        Details
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                        disabled={!effectiveRoleId(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                        onClick={() => handleHire(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                      >
+                        Send Offer
+                      </Button>
+                    </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setShowMatches(false)}>×</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {matches.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-4">
-                    No matching workers found. Try adjusting your job requirements.
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {matches.map((match) => (
-                      <div key={match.worker_id} className="border rounded-xl p-4 flex flex-col">
-                        <div className="flex items-start gap-3 mb-2">
-                          <WorkerThumb worker={{ fullName: match.full_name, roles: match.roles, locationText: match.location_text }} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <h4 className="font-semibold truncate">{match.full_name}</h4>
-                              <Badge className="bg-gradient-to-r from-saffron-500 to-saffron-600">{match.match_score}% match</Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <MapPin size={11} className="text-saffron-500" />
-                              {match.location_text}
-                            </p>
-                            {(match.roles || []).length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-1.5">
-                                {match.roles.map((r, i) => (
-                                  <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
-                                    <img
-                                      src={getRoleImage(r)}
-                                      alt=""
-                                      className="w-3 h-3 rounded-full object-cover"
-                                      onError={e => { e.currentTarget.style.display = 'none'; }}
-                                    />
-                                    {r}
-                                  </span>
-                                ))}
-                              </div>
+                ))}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Browse Workers Modal */}
+        <Dialog open={showWorkers && !!browseJob} onOpenChange={(o) => !o && setShowWorkers(false)}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="pr-6">Workers at {browseJob?.locationText}</DialogTitle>
+              <DialogDescription>For: {browseJob?.title}</DialogDescription>
+            </DialogHeader>
+
+            {loadingWorkers ? (
+              <p className="text-center text-muted-foreground py-4">Loading workers...</p>
+            ) : workers.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">
+                No available workers found at this location.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {workers.map((worker) => {
+                  const reliability = formatReliability(worker.reliabilityScore);
+                  const wage = formatExpectedWage(worker);
+
+                  return (
+                    <div key={worker.id} className="border rounded-xl p-4 flex flex-col">
+                      <div className="flex items-start gap-3 mb-2">
+                        <WorkerBanner worker={worker} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-semibold truncate">{worker.fullName}</h4>
+                            {reliability && (
+                              <Badge variant="outline" className="shrink-0">★ {reliability}</Badge>
                             )}
                           </div>
+                          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                            <MapPin size={11} className="text-saffron-500" />
+                            {worker.locationText}
+                          </p>
+                          <WorkerRoleChips roles={worker.roles} className="mt-1.5" />
                         </div>
-                        <div className="mb-2">
-                          {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
-                        </div>
-                        <ul className="text-xs text-muted-foreground mb-3 flex-1">
-                          {match.match_reasons?.map((reason, i) => (
-                            <li key={i}>• {reason}</li>
-                          ))}
-                        </ul>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Experience: {worker.experienceYears} yrs
+                        {wage && <> | Wage: {wage}</>}
+                      </p>
+                      <div className="mb-3">
+                        {renderRoleSelect(browseJob, worker.id)}
+                      </div>
+                      <div className="mt-auto flex gap-2">
                         <Button
                           size="sm"
-                          className="w-full bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                          disabled={!effectiveRoleId(selectedJob, match.worker_id, match.suggestedRole?.id)}
-                          onClick={() => handleHire(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                          variant="outline"
+                          className="shrink-0"
+                          onClick={() => setDetailWorker({ workerId: worker.id, context: null })}
+                        >
+                          Details
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                          disabled={!effectiveRoleId(browseJob, worker.id)}
+                          onClick={() => handleHire(browseJob, worker.id)}
                         >
                           Send Offer
                         </Button>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
-        {/* Browse Workers Modal */}
-        {showWorkers && browseJob && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-3xl max-h-[80vh] overflow-y-auto">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle>Workers at {browseJob.locationText}</CardTitle>
-                    <CardDescription>For: {browseJob.title}</CardDescription>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setShowWorkers(false)}>×</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingWorkers ? (
-                  <p className="text-center text-muted-foreground py-4">Loading workers...</p>
-                ) : workers.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-4">
-                    No available workers found at this location.
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {workers.map((worker) => (
-                      <div key={worker.id} className="border rounded-xl p-4 flex flex-col">
-                        <div className="flex items-start gap-3 mb-2">
-                          <WorkerThumb worker={worker} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <h4 className="font-semibold truncate">{worker.fullName}</h4>
-                              <Badge variant="outline">★ {worker.reliabilityScore}/5</Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <MapPin size={11} className="text-saffron-500" />
-                              {worker.locationText}
-                            </p>
-                            {(worker.roles || []).length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-1.5">
-                                {worker.roles.map((r, i) => (
-                                  <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
-                                    <img
-                                      src={getRoleImage(r)}
-                                      alt=""
-                                      className="w-3 h-3 rounded-full object-cover"
-                                      onError={e => { e.currentTarget.style.display = 'none'; }}
-                                    />
-                                    {r}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+        {/* Applications Modal */}
+        <Dialog open={showApps && !!appsJob} onOpenChange={(o) => !o && setShowApps(false)}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="pr-6">Job Applications</DialogTitle>
+              <DialogDescription>For: {appsJob?.title}</DialogDescription>
+            </DialogHeader>
+
+            {loadingApplications ? (
+              <p className="text-center text-muted-foreground py-4">Loading applications...</p>
+            ) : applications.length === 0 ? (
+              <p className="text-center text-muted-foreground py-4">
+                No applications yet.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                {applications.map((app) => (
+                  <div key={app.id} className="border rounded-xl p-4">
+                    <div className="flex items-start gap-3 mb-2">
+                      <WorkerBanner worker={app.worker} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-semibold truncate">{app.worker?.fullName}</h4>
+                          <Badge
+                            variant={
+                              app.status === 'PENDING' ? 'secondary'
+                                : app.status === 'OFFERED' ? 'outline'
+                                : app.status === 'OFFER_WITHDRAWN' ? 'secondary'
+                                : 'default'
+                            }
+                          >
+                            {applicationStatusLabelForEmployer(app.status)}
+                          </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Experience: {worker.experienceYears} yrs | Wage: ₹{worker.expectedWageMin}-{worker.expectedWageMax}/{worker.wageType}
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                          <MapPin size={11} className="text-saffron-500" />
+                          {app.worker?.locationText}
                         </p>
-                        <div className="mb-3">
-                          {renderRoleSelect(browseJob, worker.id)}
-                        </div>
-                        <div className="mt-auto">
+                        <WorkerRoleChips roles={app.worker?.roles} className="mt-1.5" />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Applied: {new Date(app.appliedAt).toLocaleDateString()}
+                        </p>
+                        {app.jobRole && (
+                          <p className="text-xs text-blue-600">
+                            Role: {app.jobRole.roleName}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-end gap-2 flex-wrap">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0"
+                        onClick={() => setDetailWorker({ workerId: app.workerId, context: app })}
+                      >
+                        Details
+                      </Button>
+
+                      {app.status === 'PENDING' && (
+                        <>
+                          <div className="flex-1 min-w-[180px]">
+                            {renderRoleSelect(appsJob, app.workerId, app.jobRoleId)}
+                          </div>
                           <Button
                             size="sm"
-                            className="w-full bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                            disabled={!effectiveRoleId(browseJob, worker.id)}
-                            onClick={() => handleHire(browseJob, worker.id)}
+                            className="bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
+                            disabled={!effectiveRoleId(appsJob, app.workerId, app.jobRoleId)}
+                            onClick={() => handleAcceptApplication(appsJob, app.workerId, app.jobRoleId)}
                           >
                             Send Offer
                           </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                        </>
+                      )}
+                      {app.status === 'HIRED' && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleRemoveWorker(appsJob.id, app.workerId, app.worker?.fullName)}
+                        >
+                          Remove Worker
+                        </Button>
+                      )}
+                    </div>
 
-        {/* Applications Modal */}
-        {showApps && appsJob && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle>Job Applications</CardTitle>
-                    <CardDescription>For: {appsJob.title}</CardDescription>
+                    {app.status === 'OFFERED' && (
+                      <p className="text-xs text-blue-600 pt-1">
+                        Offer sent{app.jobRole ? ` for ${app.jobRole.roleName}` : ''} — waiting for the worker to accept or reject.
+                      </p>
+                    )}
+                    {app.status === 'OFFER_WITHDRAWN' && (
+                      <p className="text-xs text-amber-600 pt-1">
+                        Offer withdrawn — another worker accepted this role.
+                      </p>
+                    )}
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => setShowApps(false)}>×</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingApplications ? (
-                  <p className="text-center text-muted-foreground py-4">Loading applications...</p>
-                ) : applications.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-4">
-                    No applications yet.
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {applications.map((app) => (
-                      <div key={app.id} className="border rounded-xl p-4">
-                        <div className="flex items-start gap-3 mb-2">
-                          <WorkerThumb worker={app.worker} />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between gap-2">
-                              <h4 className="font-semibold truncate">{app.worker?.fullName}</h4>
-                              <Badge variant={app.status === 'PENDING' ? 'secondary' : app.status === 'OFFERED' ? 'outline' : app.status === 'OFFER_WITHDRAWN' ? 'secondary' : 'default'}>
-                                {app.status === 'OFFERED' ? 'OFFER PENDING' : app.status === 'OFFER_WITHDRAWN' ? 'OFFER WITHDRAWN' : app.status}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <MapPin size={11} className="text-saffron-500" />
-                              {app.worker?.locationText}
-                            </p>
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {(app.worker?.roles || []).map((r, i) => (
-                                <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
-                                  <img
-                                    src={getRoleImage(r)}
-                                    alt=""
-                                    className="w-3 h-3 rounded-full object-cover"
-                                    onError={e => { e.currentTarget.style.display = 'none'; }}
-                                  />
-                                  {r}
-                                </span>
-                              ))}
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              Applied: {new Date(app.appliedAt).toLocaleDateString()}
-                            </p>
-                            {app.jobRole && (
-                              <p className="text-xs text-blue-600">
-                                Role: {app.jobRole.roleName}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        {app.status === 'PENDING' && (
-                          <div className="flex items-end gap-2 flex-wrap">
-                            <div className="flex-1 min-w-[180px]">
-                              {renderRoleSelect(appsJob, app.workerId, app.jobRoleId)}
-                            </div>
-                            <Button
-                              size="sm"
-                              className="bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                              disabled={!effectiveRoleId(appsJob, app.workerId, app.jobRoleId)}
-                              onClick={() => handleAcceptApplication(appsJob, app.workerId, app.jobRoleId)}
-                            >
-                              Send Offer
-                            </Button>
-                          </div>
-                        )}
-                        {app.status === 'OFFERED' && (
-                          <p className="text-xs text-blue-600 pt-1">
-                            Offer sent{app.jobRole ? ` for ${app.jobRole.roleName}` : ''} — waiting for the worker to accept or reject.
-                          </p>
-                        )}
-                        {app.status === 'OFFER_WITHDRAWN' && (
-                          <p className="text-xs text-amber-600 pt-1">
-                            Offer withdrawn — another worker accepted this role.
-                          </p>
-                        )}
-                        {app.status === 'HIRED' && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => handleRemoveWorker(appsJob.id, app.workerId, app.worker?.fullName)}
-                          >
-                            Remove Worker
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+                ))}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Worker details, opened from any of the three modals above */}
+        <WorkerDetailsDialog
+          workerId={detailWorker?.workerId}
+          open={!!detailWorker}
+          onOpenChange={(o) => !o && setDetailWorker(null)}
+          application={detailWorker?.context}
+        />
       </main>
     </>
   );

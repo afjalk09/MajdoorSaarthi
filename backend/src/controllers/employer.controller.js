@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const prisma = require('../lib/prisma');
+const { PUBLIC_WORKER_SELECT, toPublicWorker } = require('../lib/publicWorker');
+const { WORK_HISTORY_INCLUDE, completedHistoryWhere, REVIEW_PARTY_SELECT, withWorkStats } = require('../lib/workerHistory');
 const { DOC_TYPES, ADDRESS_PROOF_TYPES, EMPLOYER_TYPES } = require('../lib/employerDocs');
 const { UPLOAD_DIR } = require('../middleware/upload.middleware');
 const {
@@ -275,7 +277,8 @@ exports.getWorkersByLocation = async (req, res, next) => {
       prisma.workerProfile.count({ where }),
       prisma.workerProfile.findMany({
         where,
-        include: { user: { select: { email: true, phone: true } } },
+        // Public projection only — never leak panNumber / aadhaarNumber.
+        select: PUBLIC_WORKER_SELECT,
         orderBy: { reliabilityScore: 'desc' },
         skip,
         take: limitNum
@@ -291,6 +294,61 @@ exports.getWorkersByLocation = async (req, res, next) => {
         total,
         totalPages: Math.ceil(total / limitNum)
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Full public profile of one worker, plus the derived reputation and completed
+ * work history an employer needs before making a hire decision.
+ *
+ * Deliberately NOT gated on availability or verification: an employer must be
+ * able to inspect a BUSY worker (to send an offer that may become the first
+ * acceptance) and an already-hired one (from the job's Hired Workers list).
+ */
+exports.getWorkerDetail = async (req, res, next) => {
+  try {
+    const worker = await prisma.workerProfile.findUnique({
+      where: { id: req.params.id },
+      select: PUBLIC_WORKER_SELECT
+    });
+
+    if (!worker) {
+      return res.status(404).json({ success: false, message: 'Worker not found' });
+    }
+
+    // Reviews key off User.id, applications off WorkerProfile.id.
+    const [reviews, reviewStats, history] = await Promise.all([
+      prisma.review.findMany({
+        where: { revieweeId: worker.userId },
+        include: {
+          reviewer: { select: REVIEW_PARTY_SELECT },
+          job: { select: { id: true, title: true } }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20
+      }),
+      prisma.review.aggregate({
+        where: { revieweeId: worker.userId },
+        _avg: { rating: true },
+        _count: { _all: true }
+      }),
+      prisma.jobApplication.findMany({
+        where: completedHistoryWhere(worker.id),
+        ...WORK_HISTORY_INCLUDE
+      })
+    ]);
+
+    res.json({
+      success: true,
+      data: withWorkStats(toPublicWorker(worker), {
+        reviews,
+        averageRating: reviewStats._avg.rating || 0,
+        totalReviews: reviewStats._count._all || 0,
+        history
+      })
     });
   } catch (error) {
     next(error);

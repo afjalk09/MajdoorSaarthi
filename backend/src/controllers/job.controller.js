@@ -2,6 +2,9 @@ const prisma = require('../lib/prisma');
 const matchingService = require('../services/matching.service');
 const { createNotification } = require('./notification.controller');
 const roleService = require('../services/role.service');
+const { roleCapacityInclude, withRoleCapacity } = require('../lib/jobRoles');
+const { toPublicEmployer } = require('../lib/publicEmployer');
+const { publicWorkerInclude } = require('../lib/publicWorker');
 
 // Validate role requirements against the taxonomy. Returns the cleaned
 // requirements array, or null if validation failed (caller sends the error).
@@ -208,14 +211,7 @@ exports.getEmployerJobs = async (req, res, next) => {
     const jobs = await prisma.job.findMany({
       where: { employerId: employer.id },
       include: {
-        jobRoles: {
-          include: {
-            applications: {
-              where: { status: { in: ['HIRED', 'COMPLETED', 'OFFERED'] } },
-              select: { status: true }
-            }
-          }
-        },
+        jobRoles: roleCapacityInclude,
         applications: {
           where: { status: { in: ['HIRED', 'COMPLETED'] } },
           select: { status: true }
@@ -229,16 +225,7 @@ exports.getEmployerJobs = async (req, res, next) => {
       ...job,
       applications: undefined,
       totalHired: (job.applications || []).length,
-      jobRoles: job.jobRoles.map(role => {
-        const offeredCount = role.applications.filter(a => a.status === 'OFFERED').length;
-        const hiredCount = role.applications.length - offeredCount;
-        return {
-          ...role,
-          applications: undefined,
-          offeredCount,
-          remainingCapacity: role.count - hiredCount
-        };
-      })
+      jobRoles: withRoleCapacity(job.jobRoles)
     }));
 
     res.json({ success: true, data: jobsWithRoleCounts });
@@ -253,14 +240,7 @@ exports.getJobById = async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         employer: true,
-        jobRoles: {
-          include: {
-            applications: {
-              where: { status: { in: ['HIRED', 'COMPLETED', 'OFFERED'] } },
-              select: { status: true }
-            }
-          }
-        },
+        jobRoles: roleCapacityInclude,
         reviews: true,
         applications: {
           where: { status: { in: ['HIRED', 'COMPLETED'] } },
@@ -280,28 +260,10 @@ exports.getJobById = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
-    // Compute filledCount for each role from actual hired applications
-    const roleHiredCount = {};
-    job.applications.forEach(app => {
-      if (app.jobRoleId) {
-        roleHiredCount[app.jobRoleId] = (roleHiredCount[app.jobRoleId] || 0) + 1;
-      }
-    });
-
     const roleNameById = {};
     job.jobRoles.forEach(role => { roleNameById[role.id] = role.roleName; });
 
-    const jobRoles = job.jobRoles.map(role => {
-      const offeredCount = (role.applications || []).filter(a => a.status === 'OFFERED').length;
-      const hiredCount = ((role.applications || []).length) - offeredCount;
-      return {
-        ...role,
-        applications: undefined,
-        filledCount: roleHiredCount[role.id] || 0,
-        offeredCount,
-        remainingCapacity: role.count - hiredCount
-      };
-    });
+    const jobRoles = withRoleCapacity(job.jobRoles);
 
     // Unique hired workers with user id + name + role (used for ratings/feedback + per-worker tracking)
     const hiredWorkers = [...new Map(
@@ -330,6 +292,9 @@ exports.getJobById = async (req, res, next) => {
       success: true,
       data: {
         ...job,
+        // This route is authenticate-only, so the employer row must not leak
+        // PAN/Aadhaar/signatory data to other users viewing the job.
+        employer: toPublicEmployer(job.employer),
         jobRoles,
         hiredWorkers,
         myReviews,
@@ -358,7 +323,8 @@ exports.getJobApplications = async (req, res, next) => {
 
     const applications = await prisma.jobApplication.findMany({
       where: { jobId: id },
-      include: { worker: true, jobRole: true },
+      // Public worker projection only — never leak panNumber / aadhaarNumber.
+      include: { ...publicWorkerInclude, jobRole: true },
       orderBy: { appliedAt: 'desc' }
     });
 
@@ -582,14 +548,9 @@ exports.getMatches = async (req, res, next) => {
     }
 
     // Open capacity per role (pending offers don't reserve a slot)
+    job.jobRoles = withRoleCapacity(job.jobRoles);
     const remainingById = {};
-    job.jobRoles.forEach(role => {
-      const offeredCount = role.applications.filter(a => a.status === 'OFFERED').length;
-      const hiredCount = role.applications.length - offeredCount;
-      remainingById[role.id] = role.count - hiredCount;
-      role.remainingCapacity = role.count - hiredCount;
-      role.applications = undefined;
-    });
+    job.jobRoles.forEach(role => { remainingById[role.id] = role.remainingCapacity; });
 
     const matches = await matchingService.findMatches(job);
 

@@ -17,5 +17,6 @@ router.post(
   employerController.uploadDocument
 );
 router.get('/workers', authenticate, authorize('employer'), employerController.getWorkersByLocation);
+router.get('/workers/:id', authenticate, authorize('employer'), employerController.getWorkerDetail);
 
 module.exports = router;

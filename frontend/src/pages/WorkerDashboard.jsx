@@ -20,6 +20,9 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import JobBanner from '@/components/JobBanner';
 import JobImage from '@/components/JobImage';
+import JobRoleChips from '@/components/JobRoleChips';
+import JobDetailsDialog from '@/components/JobDetailsDialog';
+import { formatJobSchedule } from '@/lib/format';
 import { MapPin } from 'lucide-react';
 
 const WorkerDashboard = () => {
@@ -35,19 +38,14 @@ const WorkerDashboard = () => {
   const [applyJob, setApplyJob] = useState(null);
   const [applyRoleId, setApplyRoleId] = useState('');
   const [applying, setApplying] = useState(false);
+  const [detailJobId, setDetailJobId] = useState(null);
+  const [detailApp, setDetailApp] = useState(null);
 
-  const formatSchedule = (job) => {
-    if (!job?.startDate && !job?.startTime) return null;
-    const parts = [];
-    if (job.startDate) {
-      const start = new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      const end = job.endDate ? new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
-      parts.push(end && end !== start ? `${start} – ${end}` : start);
-    }
-    if (job.startTime) {
-      parts.push(`${job.startTime} – ${job.endTime || '?'}`);
-    }
-    return parts.join(' | ');
+  // Open the shared job + employer details modal. Pass the worker's
+  // application (from the Applications / History tabs) to show their standing.
+  const openDetails = (job, application = null) => {
+    setDetailJobId(job.id);
+    setDetailApp(application);
   };
 
   // Filters
@@ -431,26 +429,29 @@ const WorkerDashboard = () => {
                       )}
 
                       {job.jobRoles && job.jobRoles.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {job.jobRoles.slice(0, 3).map((role, i) => (
-                            <span key={i} className="px-1.5 py-0.5 rounded-md bg-saffron-50 text-saffron-600 text-[10px] font-medium">
-                              {role.roleName}
-                            </span>
-                          ))}
-                        </div>
+                        <JobRoleChips jobRoles={job.jobRoles} limit={3} className="mb-3" />
                       )}
 
-                      <div className="mt-auto pt-3 border-t border-warm-100 flex items-center justify-between">
+                      <div className="mt-auto pt-3 border-t border-warm-100 flex items-center justify-between gap-2">
                         <span className="text-xs text-muted-foreground">
                           {job.workersNeeded} workers · {job.durationDays} days
                         </span>
-                        <Button
-                          size="sm"
-                          className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white"
-                          onClick={() => { setApplyJob(job); setApplyRoleId(''); }}
-                        >
-                          Apply
-                        </Button>
+                        <div className="flex gap-2 shrink-0">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openDetails(job)}
+                          >
+                            Details
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white"
+                            onClick={() => { setApplyJob(job); setApplyRoleId(''); }}
+                          >
+                            Apply
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -509,12 +510,19 @@ const WorkerDashboard = () => {
                         </span>
                         {app.job && ` • ₹${app.job.wageAmount}/${app.job.wageType}`}
                       </div>
-                      {formatSchedule(app.job) && (
+                      {formatJobSchedule(app.job) && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          Schedule: {formatSchedule(app.job)}
+                          Schedule: {formatJobSchedule(app.job)}
                         </p>
                       )}
                       <div className="flex gap-2 mt-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openDetails(app.job, app)}
+                        >
+                          Details
+                        </Button>
                         {app.status === 'OFFERED' && (
                           <>
                             {availability === 'AVAILABLE' ? (
@@ -612,14 +620,20 @@ const WorkerDashboard = () => {
                             isEmployer={false}
                             onReviewSubmitted={() => refreshHistoryDetail(app.jobId)}
                           />
-                          <div className="flex justify-end">
+                          <div className="flex flex-wrap justify-end gap-2">
                             <Button
                               variant="outline"
+                              size="sm"
+                              onClick={() => openDetails(app.job, app)}
+                            >
+                              Job & Employer Details
+                            </Button>
+                            <Button
                               size="sm"
                               disabled={!detail.reviewComplete}
                               onClick={() => navigate(`/jobs/${app.jobId}/track`)}
                             >
-                              {detail.reviewComplete ? 'View Details' : 'Rate to unlock details'}
+                              {detail.reviewComplete ? 'Open Job Page' : 'Rate to unlock'}
                             </Button>
                           </div>
                         </div>
@@ -657,7 +671,7 @@ const WorkerDashboard = () => {
                     </SelectTrigger>
                     <SelectContent>
                       {applyJob.jobRoles.map(role => {
-                        const remaining = role.count - role.filledCount;
+                        const remaining = role.remainingCapacity ?? (role.count - (role.filledCount || 0));
                         return (
                           <SelectItem key={role.id} value={role.id} disabled={remaining <= 0}>
                             {role.roleName} ({remaining} needed)
@@ -681,6 +695,14 @@ const WorkerDashboard = () => {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Job + employer details (Available Jobs, My Applications, History) */}
+      <JobDetailsDialog
+        jobId={detailJobId}
+        open={!!detailJobId}
+        onOpenChange={(open) => { if (!open) { setDetailJobId(null); setDetailApp(null); } }}
+        application={detailApp}
+      />
     </>
   );
 };

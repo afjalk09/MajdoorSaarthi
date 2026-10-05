@@ -28,6 +28,7 @@ import { showSuccess, showError } from '@/lib/toast';
 import {
   ADDRESS_PROOF_OPTIONS,
   ADDRESS_PROOF_TYPES,
+  EMPLOYER_TYPE_LABELS,
   ENTITY_TYPE_OPTIONS,
   REQUIRED_BUSINESS_DOC_TYPES,
   isBusinessType,
@@ -40,12 +41,6 @@ const EMPLOYER_TYPES = [
   { value: 'CONTRACTOR', label: 'Contractor' },
   { value: 'COMPANY', label: 'Company' }
 ];
-
-const EMPLOYER_TYPE_LABELS = {
-  INDIVIDUAL: 'Individual',
-  CONTRACTOR: 'Contractor',
-  COMPANY: 'Company'
-};
 
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const AADHAAR_RE = /^\d{12}$/;

@@ -1,5 +1,6 @@
 const prisma = require('../lib/prisma');
 const { createNotification } = require('./notification.controller');
+const { REVIEW_PARTY_SELECT } = require('../lib/workerHistory');
 
 exports.submitReview = async (req, res, next) => {
   try {
@@ -75,7 +76,7 @@ exports.getUserReviews = async (req, res, next) => {
     const reviews = await prisma.review.findMany({
       where: { revieweeId: req.params.userId },
       include: {
-        reviewer: { select: { id: true, email: true, workerProfile: { select: { fullName: true } }, employerProfile: { select: { displayName: true } } } },
+        reviewer: { select: REVIEW_PARTY_SELECT },
         job: { select: { id: true, title: true } }
       },
       orderBy: { createdAt: 'desc' }
@@ -106,8 +107,8 @@ exports.getJobReviews = async (req, res, next) => {
     const reviews = await prisma.review.findMany({
       where: { jobId: req.params.jobId },
       include: {
-        reviewer: { select: { id: true, email: true, workerProfile: { select: { fullName: true } }, employerProfile: { select: { displayName: true } } } },
-        reviewee: { select: { id: true, email: true, workerProfile: { select: { fullName: true } }, employerProfile: { select: { displayName: true } } } }
+        reviewer: { select: REVIEW_PARTY_SELECT },
+        reviewee: { select: REVIEW_PARTY_SELECT }
       },
       orderBy: { createdAt: 'desc' }
     });

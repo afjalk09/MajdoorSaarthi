@@ -14,7 +14,8 @@
     "prisma:seedroles": "node prisma/seed-roles.js",
     "prisma:backfill": "node prisma/backfillRoleAssignments.js",
     "prisma:backfillroles": "node prisma/backfillWorkerRoles.js",
-    "prisma:backfillrolenames": "node prisma/backfillRoleNames.js"
+    "prisma:backfillrolenames": "node prisma/backfillRoleNames.js",
+    "prisma:backfillreliability": "node prisma/backfillReliabilityScale.js"
   },
   "dependencies": {
     "@prisma/client": "^6.6.0",

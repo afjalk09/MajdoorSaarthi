@@ -135,8 +135,64 @@ The `Job` model has **no image/photo field** — all job art is **derived at ren
   - `WorkerDashboard` "Available Jobs": responsive grid `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` of compact cards → `<JobBanner job aspect="aspect-[4/3]">` + role chips + Apply (full-screen banners were too big; use the grid).
   - `WorkerDashboard` "My Applications" + "History": list cards show `<JobImage>` thumbnails (`w-16 h-16 xl:w-20 xl:h-20 rounded-xl object-cover`) beside the title/status.
   - `JobTracking` detail page: `<JobBanner>` at top of the job card.
-  - `EmployerDashboard` modals + `BrowseWorkers`: compact `WorkerThumb` (~`w-14 h-14`) using `getWorkerImage` with a role-label overlay.
+  - `EmployerDashboard` modals + `BrowseWorkers`: `<WorkerBanner size="sm">` (thumbnails, ~`w-14 h-14`) — see Employer Worker Details below. There is **no local `WorkerThumb`** any more; it was a duplicate of `WorkerBanner`.
 - **Backend**: `GET /api/worker/applications` (`worker.controller.js` `getMyApplications`) includes `job: { include: { employer: true, jobRoles: true } }` so `app.job.jobRoles` exists and role images resolve exactly (title-keyword fallback still covers apps without roles).
+
+## Employer Worker Details (public profile + reviews + work history)
+An employer can open one worker's full public record from **all five** employer surfaces. One canonical endpoint, one shared dialog.
+
+### Endpoint
+`GET /api/employer/workers/:id` → `employer.controller.js` `getWorkerDetail`, behind `authenticate` + `authorize('employer')`. **NOT gated on availability or verification** — an employer must be able to inspect a `BUSY`/unverified worker they already have an application or offer from. Returns `404 "Worker not found"` for an unknown id.
+
+```js
+{
+  id, userId, fullName, roles, experienceYears, locationText, availability,
+  expectedWageMin, expectedWageMax, wageType, reliabilityScore, isVerified,
+  profilePhoto, createdAt,
+  reputation: { reliabilityScore /* normalised 0-100 */, averageRating /* 1-5 */, totalReviews },
+  reviews:    [{ id, rating, comment, createdAt, jobId, jobTitle, reviewerName }],  // max 20
+  workHistory:[{ jobId, jobTitle, roleName, employerName, locationText, wageAmount, wageType, appliedAt }]
+}
+```
+
+### Backend helpers (`backend/src/lib/`)
+- **`publicWorker.js`** — `PUBLIC_WORKER_SELECT` (the allowlist), `publicWorkerInclude` (`{ worker: { select } }` to spread into an `include`), `toPublicWorker(row)`. **Excludes `panNumber`, `aadhaarNumber`, `locationLat`, `locationLng`, `updatedAt`.** Identity docs never go to a counterparty; precise coords are tracking data the hiring UI has no use for. `userId` **is** included (Rating/Review/Document key off `User.id`, not `WorkerProfile.id`) — it is not PII.
+- **`workerHistory.js`** — `WORK_HISTORY_STATUSES` (`['COMPLETED']` only; `HIRED` is work-in-progress and already visible via the job), `WORK_HISTORY_INCLUDE`, `completedHistoryWhere(workerId)`, `REVIEW_PARTY_SELECT`, `toPublicReview`, `toHistoryEntry`, `withWorkStats`.
+- **CRITICAL — `WORK_HISTORY_INCLUDE` must contain ONLY `include` + `orderBy`.** Callers spread it into `findMany` *alongside* their own `where: { workerId }`, so a `where` inside the fragment **silently overwrites the worker filter** (later spread wins) and returns *every* worker's completed jobs. Always pair it with `completedHistoryWhere(worker.id)` as the outer `where`. This was a real leak — see Known Bug 13.
+- `totalReviews` comes from `review.aggregate(_count)`, **not** `reviews.length`, because the review list is capped at 20.
+
+### PII narrowing applied to pre-existing endpoints
+The projection is now used everywhere a worker is shown to an employer:
+- `GET /api/employer/workers` (`getWorkersByLocation`) → `select: PUBLIC_WORKER_SELECT`; the nested `user` include was **dropped** (it existed only to reach PII).
+- `GET /api/jobs/:id/applications` (`getJobApplications`) → `include: { ...publicWorkerInclude, jobRole: true }`.
+- `GET /api/reviews/user/:userId` and `GET /api/reviews/job/:jobId` → both parties via `REVIEW_PARTY_SELECT` (`id` + profile display name only, **no `email`**). A review is public to any authenticated user, so attaching emails would turn every review list into an address book.
+- **Known remaining gap**: `GET /api/jobs/:id` still returns its own `hiredWorkers[]` / `reviews[]` **un-narrowed** and may leak worker PII. Not yet fixed.
+
+### Frontend
+- **`lib/worker.js`** — `AVAILABILITY_META`, `availabilityLabel`, `WORK_STATUS_META`, `workStatusLabel`. `JobTracking` no longer keeps its own `WORK_STATUS_LABELS` map.
+- **`components/WorkerDetailsDialog.jsx`** — `<WorkerDetailsDialog workerId open onOpenChange application />` fetches on open and composes `WorkerBanner` + `AvailabilityBadge` + `WorkerRoleChips` + `WorkerFacts` + `WorkerReputation` + `WorkerWorkHistory`. The optional `application` prop is a *display* hint only ("Role: Mason", offer/applied status) — it is NOT the data source; the dialog always fetches by `workerId`.
+- Supporting primitives: `WorkerImage` (single source of worker imagery), `WorkerBanner` (`size="sm|lg"` + **`aspect` prop**, mirrors `JobBanner`), `WorkerRoleChips`, `AvailabilityBadge`, `WorkerFacts`, `WorkerReputation` (collapsed to 3 reviews, expandable), `WorkerWorkHistory`, plus shared `Fact.jsx` / `RoleChip.jsx` atoms also used by the job side.
+- **`WorkerBanner` shape lesson**: `aspect` is a **separate prop** from `className` on purpose. `className || 'aspect-[4/3]'` meant a caller passing only `rounded-xl` dropped the height and collapsed the `absolute inset-0` image to zero pixels.
+- **Trigger ids differ per surface**: Matches → `match.worker_id`; Browse modal → `worker.id`; Applications → `app.worker.id` (pass `app` as context); Browse page → `worker.id`; JobTracking hired workers → `w.id` (pass `w`).
+- Employer wording uses `applicationStatusLabelForEmployer(status)` (`lib/job.js`) so `OFFERED` reads **“Offer Pending”**, not “Offer Received”.
+- All three `EmployerDashboard` worker modals were converted from hand-rolled `fixed inset-0` overlays to shadcn `Dialog` — shadcn `Dialog` renders in a portal, and a hand-rolled overlay nested inside another `Dialog`'s portal traps focus/breaks scroll locking.
+- `BrowseWorkers`: the local ~40-line `WorkerBanner` duplicate was deleted in favour of the shared component, and **Details works without a selected job** (the job selector only gates Send Offer).
+- `matching.service.js` now returns `profile_photo` + `is_verified` + wage fields, so the matches modal banner shows a real photo instead of always falling back to role art.
+
+## reliabilityScore Is Stored DUAL-SCALE (read it before using it)
+`WorkerProfile.reliabilityScore` is denormalised and is **NOT on a single scale**.
+
+- `review.controller.js` and `rating.controller.js` both write `(avgRating / 5) * 100` → a **0-100** value. They were written independently and **last write wins**, so the column can silently flip between the two tables.
+- But the existing rows overwhelmingly hold a **raw 0-5** value — **100 of 121 rows** in the seeded dev DB, only 2 above 5 (presumably an earlier code path or manual seeding).
+
+**Therefore any read of this column must accept BOTH scales.** Because a 0-100 value is always `> 5` and a 0-5 value never is, the threshold is unambiguous: `value <= 5` means the row is already on the star scale.
+
+- **Backend: `backend/src/lib/reliability.js`** — `STAR_MAX`/`STORED_MAX`, `normalizeReliability(v)` → 0-100, `toStarScore(v)` → 0-5 rounded to 1dp (null when unrated).
+- **Frontend: `formatReliability(score)`** in `lib/format.js` — the mirror; returns `"4.8/5"` or `null` (callers hide the row). **Never render `reliabilityScore` directly.**
+- `matching.service.js` normalises before weighting. This was a real scoring bug: `reliabilityScore * 0.25` gave a worker stored as `4.8` a contribution of `1.2` instead of `24`, burying legacy-scale workers at the bottom of every match list.
+- `withWorkStats` returns the **normalised** value as `reputation.reliabilityScore`, so the API is self-consistent.
+- `WorkerReputation` shows the fresh Review average (`1-5`) *and* the stored reliability, because they derive from different tables and can legitimately disagree. `AdminDashboard` still shows the raw stored value as `/100` — correct for admin triage.
+- **Data fix (optional, not yet run):** `npm run prisma:backfillreliability` → `backend/prisma/backfillReliabilityScale.js`, supports `--dry-run`. Selects exactly `> 0 AND <= 5` and multiplies by 20. Reads are already defensive, so this only matters for `orderBy: { reliabilityScore: 'desc' }` in `getWorkersByLocation`, which still sorts mixed-scale values and therefore currently ranks every legacy worker below the two 0-100 rows.
 
 ## Employer Verification (ALL TYPES) + Business Block (CONTRACTOR / COMPANY)
 
@@ -201,10 +257,15 @@ Each match includes:
 - match_score (0-100)
 - match_reasons (explainable array)
 
+> `matching.service.js` calls `normalizeReliability()` before applying the 0.25
+> reliability weight — the stored column is dual-scale, and skipping this made
+> legacy 0-5 rows score ~1.2/25 instead of ~24/25. See reliabilityScore Is
+> Stored DUAL-SCALE above.
+
 ## API Endpoints
 
 ### Auth
-- `POST /api/auth/register` — Register (worker/employer)
+- `POST /api/auth/register` — Register (worker/employer). **201, and creates ONLY the `User` row** — `workerProfile`/`employerProfile` in the body are ignored; follow with `PUT /api/worker/profile` (snake_case) to create the profile
 - `POST /api/auth/login` — Login
 - `GET /api/auth/me` — Get current user
 
@@ -226,13 +287,15 @@ Each match includes:
 - `GET /api/employer/documents` — My verification documents (newest first)
 - `GET /api/employer/documents/:id/file` — Auth-gated file stream (owner or `ADMIN` only; must be fetched with the Bearer token, so use `openDocument()` from `frontend/src/lib/files.js` — a plain `<a href>` gets 401)
 - `POST /api/employer/documents` — **Real multipart upload** (field name `file` + `doc_type` + optional `doc_number`); see Verification Document Uploads below
-- `GET /api/employer/workers?job_id=` — Browse workers by location
+- `GET /api/employer/workers?job_id=` — Browse workers by location. **Query params are `job_id` / `search` / `role` / `page` / `limit` — there is NO `location` param.** The `locationText` filter is derived from the job passed via `job_id`. Returns the narrowed `PUBLIC_WORKER_SELECT` projection, ordered by `reliabilityScore desc` (mixed-scale caveat above).
+- `GET /api/employer/workers/:id` — **Full public worker detail** (profile + `reputation` + `reviews[]` + `workHistory[]`); see Employer Worker Details above. Not gated on availability/verification; `404` when unknown.
 
 ### Jobs
 - `POST /api/jobs` — Create job (sends `JOB_POSTED` notifications to **available workers whose skills overlap** the job's requiredSkills; no skill filter if job has no skills; not location-gated)
 - `GET /api/jobs` — My jobs
-- `GET /api/jobs/:id` — Get job details
+- `GET /api/jobs/:id` — Get job details (⚠️ `hiredWorkers[]`/`reviews[]` here are still un-narrowed — see Employer Worker Details)
 - `GET /api/jobs/:id/matches` — AI matched workers
+- `GET /api/jobs/:id/applications` — Applications for this job; worker rows use the narrowed `publicWorkerInclude`
 - `POST /api/jobs/:id/hire/:workerId` — Send job offer to worker (app → OFFERED; worker accepts via `/accept`)
 - `POST /api/jobs/:id/accept/:workerId` — Employer accepts a PENDING application (app → HIRED, worker → BUSY, role slot filled, job may flip IN_PROGRESS; worker gets `APPLICATION_ACCEPTED` notification)
 - `POST /api/jobs/:id/reject/:workerId` — Employer rejects a PENDING application (app → REJECTED, worker notified `APPLICATION_REJECTED`, stays AVAILABLE, can re-apply later)
@@ -306,7 +369,20 @@ npx prisma validate
 
 # Backfill legacy role-less HIRED/COMPLETED apps with jobRoleId (fixes stuck 0/x role counts)
 npm run prisma:backfill  # -> node prisma/backfillRoleAssignments.js
+
+# Normalise legacy raw 0-5 reliabilityScore rows to the 0-100 scale (NOT yet run)
+npm run prisma:backfillreliability              # -> node prisma/backfillReliabilityScale.js
+npm run prisma:backfillreliability -- --dry-run # preview only
 ```
+
+> Live API smoke tests must run from `backend/` (`require('@prisma/client')` needs
+> `node_modules` resolution, and `NODE_PATH` does not apply to ESM `import()`).
+> Keep the script in `backend/` while testing and delete it afterwards.
+> `POST /api/auth/register` returns **201**, and it only creates the `User` row —
+> `workerProfile` / `employerProfile` in the body are **ignored**; the profile is
+> created by the follow-up `PUT /api/worker/profile` (which takes **snake_case**
+> `full_name`, `roles`, `location_text`, `expected_wage_min`, `expected_wage_max`,
+> `wage_type` — and accepts **no** `panNumber`/`aadhaarNumber`/`reliabilityScore`).
 
 ## Common Patterns
 
@@ -415,6 +491,23 @@ const result = await prisma.payment.aggregate({
 ### 12. Employer document upload was a fake (fixed)
 - **Symptom**: "Upload your PAN/Aadhaar" was impossible — there was no file input anywhere in the frontend, `multer` was installed but never imported, `backend/uploads/` was empty, and `POST /employer/documents` only stored a client-supplied `file_url` string with no mime/size checks.
 - **Fix**: Added real multer upload middleware, an auth-gated file stream, `GET /employer/documents`, and the `FileUpload` component. See Verification Document Uploads.
+
+### 13. `WORK_HISTORY_INCLUDE` leaked EVERY worker's completed jobs (CRITICAL, now fixed)
+- **Symptom**: `GET /api/employer/workers/:id` returned a full `workHistory` — with job titles and employer names — for a brand-new worker who had never been hired.
+- **Cause**: `WORK_HISTORY_INCLUDE` was a whole query fragment that contained a `where: { status: { in: ['COMPLETED'] } }`. Callers spread it into `findMany` **after** their own `where: { workerId }`, so the spread order made the fragment's `where` win and **overwrote the worker filter**. Every completed application in the database was returned.
+- **Fix**: Stripped `where` out of the fragment (it now carries only `include` + `orderBy`) and added `completedHistoryWhere(workerId)` as the canonical outer `where`. Caught by a smoke test that asserted a freshly-created worker has an empty history — the leak returned 10 rows.
+- **Rule**: a reusable Prisma fragment spread alongside a caller's `where` must never carry its own `where`.
+
+### 14. `reliabilityScore` is stored on TWO different scales (CRITICAL, fixed on read)
+- **Symptom**: Assuming the documented 0-100 scale rendered `4.8/100` in `WorkerReputation` and blanked the reliability badge for **100 of 121** workers. Worse, AI matching scored those workers as if they had near-zero reliability, burying them below everyone on every match list.
+- **Cause**: `review.controller.js` and `rating.controller.js` both write `(avg / 5) * 100` (0-100), but the existing rows overwhelmingly hold a raw **0-5** value seeded by an earlier code path. One column, two meanings.
+- **Fix**: `backend/src/lib/reliability.js` + the mirrored `formatReliability()` — `value <= 5` is already the star value, anything above is 0-100. Applied at every read site (`matching.service.js`, `withWorkStats`, `WorkerBanner`, `WorkerFacts`, `WorkerReputation`, `WorkerProfile`). Optional data fix: `npm run prisma:backfillreliability`.
+- **Rule**: never render or weight `reliabilityScore` without going through the normaliser.
+
+### 15. Employer surfaces leaked worker PII and reviewer emails (fixed)
+- **Symptom**: `GET /employer/workers` returned nested `user` rows (email/phone) and `GET /reviews/user/:id` / `GET /reviews/job/:id` attached review party emails — turning a public review list into an address book.
+- **Fix**: `PUBLIC_WORKER_SELECT` / `publicWorkerInclude` now gate every employer-facing worker projection, and `REVIEW_PARTY_SELECT` limits review parties to `id` + display name. See Employer Worker Details.
+- **Remaining**: `GET /api/jobs/:id` still returns `hiredWorkers[]` / `reviews[]` un-narrowed.
 
 ## Express.js Best Practices
 
@@ -542,6 +635,13 @@ cd frontend && npm run test:e2e
 - `lib/docTypes.js` — entity/address-proof/doc-type labels + options, upload limits, `isDocumentOnFile()`. Mirror of `backend/src/lib/employerDocs.js`.
 - `lib/files.js` — `openDocument(doc)` / `downloadDocument(doc)` fetch a document as a **blob with the Bearer token** and return an object URL. Never link a document file directly.
 
+### Reusable Worker Components (employer surfaces)
+- `WorkerDetailsDialog.jsx` — THE shared employer worker-detail dialog; fetches `GET /employer/workers/:id` on open. See Employer Worker Details.
+- `WorkerImage.jsx` / `WorkerBanner.jsx` — worker imagery (`size="sm|lg"`, separate `aspect` prop).
+- `WorkerRoleChips.jsx`, `AvailabilityBadge.jsx`, `WorkerFacts.jsx`, `WorkerReputation.jsx`, `WorkerWorkHistory.jsx` — the detail body.
+- `Fact.jsx` / `RoleChip.jsx` — atoms shared by BOTH the job and worker sides (these replaced two hand-rolled duplicates each).
+- `lib/worker.js` — availability + work-status vocabulary; `lib/format.js` adds `formatExpectedWage`, `formatReliability`, `initialsOf`.
+
 ### New Components (Notifications/Tracking/Disputes/Reviews)
 - `NotificationBell.jsx` — Bell icon with unread count dropdown (updates instantly via socket; 30s poll is fallback). Shows relative time per item.
 - `Notifications.jsx` — Full notification list; each card shows relative + absolute timestamp (e.g. `3m ago • Sep 8, 2026, 4:12 PM`).
@@ -556,11 +656,13 @@ cd frontend && npm run test:e2e
 - `Disputes.jsx` — View raised disputes with status
 
 ### Updated Pages
-- `EmployerDashboard.jsx` — Added notification bell, Track Job, Dispute, Review buttons; worker thumbnails (`WorkerThumb`) + role-chips in Browse Workers / AI Matches / Applications modals.
+- `EmployerDashboard.jsx` — All THREE worker modals (AI Matches, Browse Workers, Applications) converted to shadcn `Dialog` and each got a **Details** button feeding one mounted `WorkerDetailsDialog` via `detailWorker = { workerId, context }`. Local `WorkerThumb` deleted.
 - `WorkerDashboard.jsx` — Added notification bell, Track Job, Dispute buttons; "Available Jobs" is a responsive image-grid of compact cards; Applications/History tabs show job-image thumbnails.
-- `BrowseWorkers.jsx` — "Select a job to send offers" dropdown so Send Offer works reliably.
+- `BrowseWorkers.jsx` — "Select a job to send offers" dropdown; local `WorkerBanner` deleted in favour of the shared one; Details button sits **outside** the `{job && ...}` gate so it works with no job selected.
+- `JobTracking.jsx` — Details button per hired worker; `WORK_STATUS_LABELS` local map deleted in favour of `workStatusLabel` from `lib/worker.js`.
 - `EmployerProfile.jsx` — **Rewritten**: shadcn `Select` for account type. PAN & Aadhaar, contact number and the registered address are **shown for every type**; only Legal Business Details and Authorized Signatory are gated behind `CONTRACTOR`/`COMPANY` (the address-proof dropdown and upload is business-only too). Inline per-field errors, a rejected-documents banner, and read-only cards for business details, signatory, address and document statuses (Aadhaar masked).
 - `AdminDashboard.jsx` — Verifications tab now reads camelCase, shows the doc number + upload time and a **View** button; Workers/Jobs tabs fixed to camelCase too.
+- `WorkerProfile.jsx` — reliability now renders through `formatReliability()` (was `{score}/5.0`, which read `88/5.0` for a 0-100 row).
 
 ### Routes Added
 - `/notifications` — Full notification page

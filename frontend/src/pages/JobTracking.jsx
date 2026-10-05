@@ -10,18 +10,17 @@ import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
 import api from '@/services/api';
 import { showSuccess, showError } from '@/lib/toast';
-import { ArrowLeft, MapPin, IndianRupee, Calendar, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import JobBanner from '@/components/JobBanner';
-
-const WORK_STATUS_LABELS = {
-  NOT_STARTED: 'Not Started',
-  IN_PROGRESS: 'In Progress',
-  COMPLETION_REQUESTED: 'Completion Requested',
-  COMPLETED: 'Completed'
-};
+import JobStatusBadge from '@/components/JobStatusBadge';
+import JobRoleChips from '@/components/JobRoleChips';
+import JobFacts from '@/components/JobFacts';
+import EmployerCard from '@/components/EmployerCard';
+import WorkerDetailsDialog from '@/components/WorkerDetailsDialog';
+import { workStatusLabel } from '@/lib/worker';
 
 export default function JobTracking() {
   const { id } = useParams();
@@ -31,6 +30,9 @@ export default function JobTracking() {
   const [loading, setLoading] = useState(true);
   const [completing, setCompleting] = useState(false);
   const [workDrafts, setWorkDrafts] = useState({});
+
+  // Worker details dialog (employer's Hired Workers list)
+  const [detailWorker, setDetailWorker] = useState(null);
   const [savingWork, setSavingWork] = useState({});
 
   const isEmployer = user.role === 'EMPLOYER';
@@ -171,16 +173,6 @@ export default function JobTracking() {
     }
   };
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'OPEN': return <Badge className="bg-blue-500">Open</Badge>;
-      case 'IN_PROGRESS': return <Badge className="bg-yellow-500">In Progress</Badge>;
-      case 'COMPLETED': return <Badge className="bg-green-500">Completed</Badge>;
-      case 'CANCELLED': return <Badge variant="destructive">Cancelled</Badge>;
-      default: return <Badge variant="secondary">{status}</Badge>;
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -208,63 +200,30 @@ export default function JobTracking() {
         <Card className="mb-6 overflow-hidden">
           <JobBanner job={job} />
           <CardHeader>
-            <div className="flex items-start justify-between">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <CardTitle className="text-xl">{job.title}</CardTitle>
                 {job.description && (
-                  <p className="text-muted-foreground mt-1">{job.description}</p>
+                  <p className="text-muted-foreground mt-1 whitespace-pre-line">{job.description}</p>
                 )}
               </div>
-              {getStatusBadge(job.status)}
+              <JobStatusBadge status={job.status} className="shrink-0" />
             </div>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              {job.locationText && (
-                <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <span>{job.locationText}</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <IndianRupee className="h-4 w-4 text-muted-foreground" />
-                <span>₹{job.wageAmount}/{job.wageType?.toLowerCase()}</span>
-              </div>
-              {job.durationDays && (
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>{job.durationDays} days</span>
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <span>{job.workersNeeded} workers needed</span>
-              </div>
-              {(job.startDate || job.startTime) && (
-                <div className="flex items-center gap-2 col-span-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <span>
-                    {job.startDate && new Date(job.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    {job.startDate && job.endDate && ` – ${new Date(job.endDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
-                    {job.startDate && job.startTime && ' | '}
-                    {job.startTime && `${job.startTime} – ${job.endTime || '?'}`}
-                  </span>
-                </div>
-              )}
-            </div>
+          <CardContent className="space-y-4">
+            <JobFacts job={job} />
 
             {job.jobRoles && job.jobRoles.length > 0 && (
-              <div className="mt-4">
+              <div>
                 <h4 className="font-medium text-sm mb-2">Roles</h4>
-                <div className="flex flex-wrap gap-2">
-                  {job.jobRoles.map(role => (
-                    <Badge key={role.id} variant="outline">
-                      {role.roleName}: {role.filledCount}/{role.count}
-                    </Badge>
-                  ))}
-                </div>
+                <JobRoleChips jobRoles={job.jobRoles} variant="badge" showImage showCount />
               </div>
             )}
+
+            <div>
+              <h4 className="font-medium text-sm mb-2">Employer</h4>
+              <EmployerCard employer={job.employer} />
+            </div>
           </CardContent>
         </Card>
 
@@ -302,7 +261,7 @@ export default function JobTracking() {
                                       {w.roles?.length ? w.roles.join(', ') : 'No roles listed'}
                                     </p>
                                     <p className="text-xs mt-1">
-                                      {WORK_STATUS_LABELS[w.workStatus] || w.workStatus}
+                                      {workStatusLabel(w.workStatus)}
                                       {isPending && (
                                         <Badge className="ml-2 bg-yellow-500">Awaiting Your Acceptance</Badge>
                                       )}
@@ -311,9 +270,18 @@ export default function JobTracking() {
                                       )}
                                     </p>
                                   </div>
-                                  <Button variant="destructive" size="sm" onClick={() => handleRemoveWorker(w.id, w.fullName)}>
-                                    Remove Worker
-                                  </Button>
+                                  <div className="flex gap-2 shrink-0">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => setDetailWorker(w)}
+                                    >
+                                      Details
+                                    </Button>
+                                    <Button variant="destructive" size="sm" onClick={() => handleRemoveWorker(w.id, w.fullName)}>
+                                      Remove Worker
+                                    </Button>
+                                  </div>
                                 </div>
                                 {isCompleted ? (
                                   <p className="text-sm text-muted-foreground mt-3">
@@ -425,7 +393,7 @@ export default function JobTracking() {
                         <div className="space-y-2">
                           {myRole && <p className="text-sm text-muted-foreground">Role: {myRole.roleName}</p>}
                           <p className="text-sm">
-                            {WORK_STATUS_LABELS[my.workStatus] || my.workStatus}
+                            {workStatusLabel(my.workStatus)}
                             {myPending && (
                               <Badge className="ml-2 bg-yellow-500">Awaiting Employer Verification</Badge>
                             )}
@@ -503,6 +471,13 @@ export default function JobTracking() {
           )}
         </div>
       </div>
+
+      <WorkerDetailsDialog
+        workerId={detailWorker?.id}
+        open={!!detailWorker}
+        onOpenChange={(o) => !o && setDetailWorker(null)}
+        application={detailWorker}
+      />
     </div>
   );
 }

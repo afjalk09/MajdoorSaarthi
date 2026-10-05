@@ -31,6 +31,15 @@ export const REQUIRED_BUSINESS_DOC_TYPES = ['PAN', 'AADHAAR'];
 
 export const BUSINESS_EMPLOYER_TYPES = ['CONTRACTOR', 'COMPANY'];
 
+export const EMPLOYER_TYPE_LABELS = {
+  INDIVIDUAL: 'Individual',
+  CONTRACTOR: 'Contractor',
+  COMPANY: 'Company'
+};
+
+export const employerTypeLabel = (employerType) =>
+  EMPLOYER_TYPE_LABELS[employerType] || String(employerType || '').replace(/_/g, ' ').toLowerCase();
+
 export const isBusinessType = (employerType) =>
   BUSINESS_EMPLOYER_TYPES.includes(String(employerType || '').toUpperCase());
 

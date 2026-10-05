@@ -7,6 +7,7 @@ router.get('/profile', authenticate, authorize('worker'), workerController.getPr
 router.put('/profile', authenticate, authorize('worker'), workerController.updateProfile);
 router.post('/documents', authenticate, authorize('worker'), workerController.uploadDocument);
 router.get('/jobs', authenticate, authorize('worker'), workerController.getAvailableJobs);
+router.get('/jobs/:id', authenticate, authorize('worker'), workerController.getJobDetail);
 router.post('/jobs/:id/apply', authenticate, authorize('worker'), workerController.applyToJob);
 router.put('/jobs/:id/cancel', authenticate, authorize('worker'), workerController.cancelHiredJob);
 router.put('/applications/:id/work-status', authenticate, authorize('worker'), workerController.updateMyWorkStatus);

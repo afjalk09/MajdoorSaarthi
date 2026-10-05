@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
+import { formatReliability } from '@/lib/format';
 
 const WorkerProfile = () => {
   const { user } = useAuth();
@@ -170,7 +171,7 @@ const WorkerProfile = () => {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Reliability Score</p>
-                  <p className="text-base">{profile?.reliabilityScore || 0}/5.0</p>
+                  <p className="text-base">{formatReliability(profile?.reliabilityScore)}/5.0</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-muted-foreground mb-1">Verified</p>
