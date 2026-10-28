@@ -7,8 +7,21 @@ import { Star } from 'lucide-react';
 import api from '@/services/api';
 import { showSuccess, showError } from '@/lib/toast';
 
-export default function ReviewModal({ jobId, revieweeId, revieweeName, onReviewSubmitted }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Star-rating + comment dialog for reviewing the other party on a job.
+ *
+ * Default usage: self-contained (internal `open` state + DialogTrigger).
+ * Auto-open usage (job just completed via payment confirmation): pass
+ * `open` + `onOpenChange` and render your own triggerless usage — the parent
+ * decides when it pops up.
+ */
+export default function ReviewModal({ jobId, revieweeId, revieweeName, onReviewSubmitted, open: openProp, onOpenChange }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp !== undefined ? openProp : internalOpen;
+  const setOpen = (v) => {
+    if (openProp === undefined) setInternalOpen(v);
+    if (onOpenChange) onOpenChange(v);
+  };
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
   const [comment, setComment] = useState('');

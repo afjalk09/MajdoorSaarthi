@@ -1,4 +1,4 @@
-# AI-Powered Digital Labour Chowk
+# AI-Powered Digital Majdoorsaarthi
 
 An AI-powered platform connecting daily-wage workers directly with employers through intelligent matching.
 
@@ -8,7 +8,7 @@ An AI-powered platform connecting daily-wage workers directly with employers thr
 - **Employer Profiles**: Individual, contractor, or company types
 - **AI Matching**: Rule-based matching with weighted scoring (skills, experience, reliability, wage, proximity)
 - **Job Management**: Create, apply, hire, track job status
-- **Payment Tracking**: UPI and offline payment recording with 5% commission
+- **Payment Tracking**: Employer records payments (UPI/offline/bank/cash, 5% platform fee); worker confirms receipt
 - **Rating System**: 1-5 star ratings with reviews
 - **Admin Panel**: Verification queue, analytics, user management
 
@@ -23,7 +23,7 @@ An AI-powered platform connecting daily-wage workers directly with employers thr
 ## Project Structure
 
 ```
-labour-chowk/
+majdoorsaarthi/
 ├── backend/
 │   ├── src/
 │   │   ├── config/          # Database, env config
@@ -74,7 +74,7 @@ labour-chowk/
 
 4. Update `.env` with your values:
    ```
-   DATABASE_URL=postgresql://user:password@host:5432/labour_chowk
+   DATABASE_URL=postgresql://user:password@host:5432/majdoorsaarthi
    JWT_SECRET=your_secret_key
    GOOGLE_MAPS_API_KEY=your_key
    FRONTEND_URL=http://localhost:5173
@@ -141,8 +141,11 @@ labour-chowk/
 - `PUT /api/jobs/:id/status` - Update status
 
 ### Payments
-- `POST /api/payments/initiate` - Start payment
-- `PUT /api/payments/:id/confirm` - Confirm payment
+- `POST /api/payments` - Employer records a payment to a hired worker (UPI/offline/bank/cash)
+- `PUT /api/payments/:id/confirm` - Worker confirms receipt
+- `PUT /api/payments/:id/cancel` - Employer cancels a pending payment
+- `GET /api/payments` - My payment history
+- `GET /api/payments/job/:jobId` - Payments for a job (participants only)
 
 ### Ratings
 - `POST /api/ratings` - Rate after completion

@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { showSuccess, showError } from '@/lib/toast';
 import { formatExpectedWage } from '@/lib/format';
+import { applicationsClosedReason, JOB_CLOSURE_META } from '@/lib/job';
 import JobRoleChips from '@/components/JobRoleChips';
 import WorkerRoleChips from '@/components/WorkerRoleChips';
 import WorkerBanner from '@/components/WorkerBanner';
@@ -156,6 +158,7 @@ const BrowseWorkers = () => {
 
   const renderRoleSelect = (workerId) => {
     if (!job) return null;
+    const closed = applicationsClosedReason(job);
     const roles = (job.jobRoles || []).filter(r => (r.remainingCapacity ?? (r.count - (r.filledCount || 0))) > 0);
     if (roles.length === 0) {
       return <p className="text-xs text-red-500">No role has an available slot.</p>;
@@ -164,6 +167,7 @@ const BrowseWorkers = () => {
     return (
       <select
         value={value || ''}
+        disabled={!!closed}
         onChange={(e) => setHireRole(workerId, e.target.value)}
         className="flex h-9 w-full rounded-md border border-warm-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-saffron-500"
       >
@@ -178,6 +182,13 @@ const BrowseWorkers = () => {
 
   const handleHire = async (workerId) => {
     if (!job) return;
+    const closed = applicationsClosedReason(job);
+    if (closed) {
+      showError(closed === 'ENDED'
+        ? 'This job has ended — no new offers can be sent'
+        : 'This job has already started — no new offers can be sent');
+      return;
+    }
     const roleId = effectiveRoleId(workerId);
     setHiring(workerId);
     try {
@@ -191,6 +202,12 @@ const BrowseWorkers = () => {
       setHiring(null);
     }
   };
+
+  // Date gate mirror of backend/src/lib/jobDates.js: no offers once started.
+  const jobClosed = job ? applicationsClosedReason(job) : null;
+  const jobClosedLabel = jobClosed
+    ? (jobClosed === 'ENDED' ? 'Job ended' : 'Job started')
+    : null;
 
   return (
     <div>
@@ -236,7 +253,14 @@ const BrowseWorkers = () => {
         {job && (
           <Card className="mb-6">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg">{job.title}</CardTitle>
+              <div className="flex items-center gap-2 pr-6">
+                <CardTitle className="text-lg">{job.title}</CardTitle>
+                {jobClosed && (
+                  <Badge className={JOB_CLOSURE_META[jobClosed].className}>
+                    {jobClosedLabel} — no new offers
+                  </Badge>
+                )}
+              </div>
               <CardDescription>
                 {job.locationText} | ₹{job.wageAmount}/{job.wageType} | {job.durationDays} days
               </CardDescription>
@@ -362,7 +386,8 @@ const BrowseWorkers = () => {
                             <Button
                               size="sm"
                               onClick={() => handleHire(worker.id)}
-                              disabled={hiring === worker.id || !effectiveRoleId(worker.id)}
+                              disabled={!!jobClosed || hiring === worker.id || !effectiveRoleId(worker.id)}
+                              title={jobClosed ? (jobClosed === 'ENDED' ? 'This job has ended' : 'This job has already started') : undefined}
                               className="shrink-0 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white shadow-md hover:shadow-lg transition-all disabled:opacity-50"
                             >
                               {hiring === worker.id ? (
@@ -373,7 +398,7 @@ const BrowseWorkers = () => {
                               ) : (
                                 <span className="flex items-center gap-1.5">
                                   <Send size={14} />
-                                  Send Offer
+                                  {jobClosed ? jobClosedLabel : 'Send Offer'}
                                 </span>
                               )}
                             </Button>

@@ -6,7 +6,9 @@ exports.getNotifications = async (req, res, next) => {
     const notifications = await prisma.notification.findMany({
       where: { userId: req.user.id },
       include: {
-        job: { select: { id: true, title: true } },
+        // Dates ride along so the inline Accept button can be date-gated in the
+        // UI (same rule as backend/src/lib/jobDates.js) instead of 400ing.
+        job: { select: { id: true, title: true, startDate: true, endDate: true, startTime: true } },
         application: { include: { jobRole: true } }
       },
       orderBy: { createdAt: 'desc' },
@@ -78,7 +80,7 @@ exports.createNotification = async (userId, type, title, message, jobId = null, 
     const payload = await prisma.notification.findUnique({
       where: { id: notification.id },
       include: {
-        job: { select: { id: true, title: true } },
+        job: { select: { id: true, title: true, startDate: true, endDate: true, startTime: true } },
         application: { include: { jobRole: true } }
       }
     });

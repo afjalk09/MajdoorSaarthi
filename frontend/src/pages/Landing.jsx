@@ -65,7 +65,7 @@ const testimonials = [
   {
     name: 'Rajesh Kumar',
     role: 'Mason · 8 years experience',
-    quote: 'Labour Chowk changed my life. I used to wait at tea stalls for work. Now families find me directly and I have regular income.',
+    quote: 'Majdoorsaarthi changed my life. I used to wait at tea stalls for work. Now families find me directly and I have regular income.',
     image: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=100&h=100&fit=crop&crop=face',
     rating: 5,
   },
@@ -79,7 +79,7 @@ const testimonials = [
   {
     name: 'Amit Patel',
     role: 'Employer · Home Renovation',
-    quote: 'Finding reliable workers used to be a nightmare. Labour Chowk gave me verified, skilled workers within minutes. Highly recommended!',
+    quote: 'Finding reliable workers used to be a nightmare. Majdoorsaarthi gave me verified, skilled workers within minutes. Highly recommended!',
     image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
     rating: 5,
   },
@@ -93,10 +93,10 @@ const Landing = () => {
         <div className="section-container mx-auto py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md">
-              <span className="text-white font-display font-bold text-lg">L</span>
+              <span className="text-white font-display font-bold text-lg">M</span>
             </div>
             <span className="font-display font-bold text-xl text-warm-900">
-              Labour Chowk
+              Majdoorsaarthi
             </span>
           </Link>
           <nav className="flex items-center gap-2 sm:gap-3">
@@ -259,7 +259,7 @@ const Landing = () => {
           <ScrollReveal>
             <div className="text-center mb-16">
               <span className="inline-block px-4 py-1.5 rounded-full bg-earth-50 text-earth-600 text-sm font-medium mb-4">
-                Why Labour Chowk
+                Why Majdoorsaarthi
               </span>
               <h2 className="font-display text-3xl sm:text-4xl font-bold text-warm-900 mb-4">
                 Built for Trust & Efficiency
@@ -295,7 +295,7 @@ const Landing = () => {
                 Simple Process
               </span>
               <h2 className="font-display text-3xl sm:text-4xl font-bold text-warm-900 mb-4">
-                How Labour Chowk Works
+                How Majdoorsaarthi Works
               </h2>
               <p className="text-warm-500 max-w-2xl mx-auto text-lg">
                 Three simple steps to find the perfect worker — no complexity, no hidden charges.
@@ -413,7 +413,7 @@ const Landing = () => {
                 Voices From Our Community
               </h2>
               <p className="text-warm-500 max-w-2xl mx-auto text-lg">
-                Real stories from workers and employers who found success through Labour Chowk.
+                Real stories from workers and employers who found success through Majdoorsaarthi.
               </p>
             </div>
           </ScrollReveal>
@@ -462,7 +462,7 @@ const Landing = () => {
                 <span className="text-gradient-saffron">Skills</span>
               </h2>
               <p className="text-lg text-warm-500 mb-8 max-w-xl mx-auto">
-                Join hundreds of workers who have found steady work and built their reputation through Labour Chowk.
+                Join hundreds of workers who have found steady work and built their reputation through Majdoorsaarthi.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-4 justify-center mb-10">

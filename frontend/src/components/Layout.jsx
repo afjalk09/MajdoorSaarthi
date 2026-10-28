@@ -62,10 +62,10 @@ const Layout = ({ children, showFooter = true }) => {
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 group">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
-                <span className="text-white font-display font-bold text-lg">L</span>
+                <span className="text-white font-display font-bold text-lg">M</span>
               </div>
               <span className={`font-display font-bold text-xl ${textColor} hidden sm:block`}>
-                Labour Chowk
+                Majdoorsaarthi
               </span>
             </Link>
 
@@ -206,9 +206,9 @@ const Layout = ({ children, showFooter = true }) => {
               <div className="lg:col-span-1">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center">
-                    <span className="text-white font-display font-bold text-lg">L</span>
+                    <span className="text-white font-display font-bold text-lg">M</span>
                   </div>
-                  <span className="font-display font-bold text-xl text-white">Labour Chowk</span>
+                  <span className="font-display font-bold text-xl text-white">Majdoorsaarthi</span>
                 </div>
                 <p className="text-warm-300 text-sm leading-relaxed mb-4">
                   AI-powered platform connecting skilled workers with employers. Find the right talent for your projects.
@@ -240,7 +240,7 @@ const Layout = ({ children, showFooter = true }) => {
               <div>
                 <h4 className="font-display font-semibold text-white mb-4">Support</h4>
                 <ul className="space-y-2 text-sm">
-                  <li><span className="text-warm-300">support@labourchowk.com</span></li>
+                  <li><span className="text-warm-300">support@majdoorsaarthi.com</span></li>
                   <li><span className="text-warm-300">Help Center</span></li>
                   <li><span className="text-warm-300">Community Guidelines</span></li>
                 </ul>
@@ -249,7 +249,7 @@ const Layout = ({ children, showFooter = true }) => {
 
             <div className="mt-12 pt-8 border-t border-warm-700/50 flex flex-col sm:flex-row justify-between items-center gap-4">
               <p className="text-warm-400 text-sm">
-                &copy; {new Date().getFullYear()} Labour Chowk. All rights reserved.
+                &copy; {new Date().getFullYear()} Majdoorsaarthi. All rights reserved.
               </p>
               <div className="flex gap-6 text-sm">
                 <span className="text-warm-400 hover:text-saffron-400 cursor-pointer transition-colors">Terms</span>

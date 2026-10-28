@@ -46,12 +46,15 @@ enum ApplicationStatus {
 enum PaymentMethod {
   UPI
   OFFLINE
+  BANK_TRANSFER
+  CASH
 }
 
 enum PaymentStatus {
   PENDING
   COMPLETED
   DISPUTED
+  CANCELLED
 }
 
 enum DocumentStatus {
@@ -262,11 +265,19 @@ model Payment {
   platformCommission Float
   paymentMethod      PaymentMethod
   status             PaymentStatus @default(PENDING)
+  reference          String?
+  note               String?
   createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  confirmedAt        DateTime?
 
   job      Job             @relation(fields: [jobId], references: [id], onDelete: Cascade)
   worker   WorkerProfile   @relation(fields: [workerId], references: [id], onDelete: Cascade)
   employer EmployerProfile @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([workerId])
+  @@index([employerId])
 }
 
 model Rating {

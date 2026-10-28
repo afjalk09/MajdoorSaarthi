@@ -10,6 +10,7 @@ import api from '@/services/api';
 import socket from '@/services/socket';
 import { timeAgo, formatDateTime } from '@/lib/format';
 import { showSuccess, showError } from '@/lib/toast';
+import { applicationsClosedReason } from '@/lib/job';
 
 export default function Notifications() {
   const [notifications, setNotifications] = useState([]);
@@ -110,6 +111,9 @@ export default function Notifications() {
       case 'APPLICATION_REJECTED': return '❌';
       case 'WORKER_CANCELLED': return '🚪';
       case 'REMOVED_FROM_JOB': return '🚫';
+      case 'PAYMENT_SENT': return '💸';
+      case 'PAYMENT_CONFIRMED': return '💰';
+      case 'PAYMENT_CANCELLED': return '⛔';
       default: return '📌';
     }
   };
@@ -155,7 +159,7 @@ export default function Notifications() {
                 }`}
                 onClick={() => {
                   handleMarkAsRead(notification.id);
-                  if (['JOB_COMPLETED', 'REVIEW_REQUIRED'].includes(notification.type) && notification.job?.id) {
+                  if (['JOB_COMPLETED', 'REVIEW_REQUIRED', 'PAYMENT_SENT', 'PAYMENT_CONFIRMED', 'PAYMENT_CANCELLED', 'WORK_COMPLETION_REQUEST'].includes(notification.type) && notification.job?.id) {
                     navigate(`/jobs/${notification.job.id}/track`);
                   }
                 }}
@@ -180,6 +184,8 @@ export default function Notifications() {
                             <Button
                               size="sm"
                               className="flex-1"
+                              disabled={!!applicationsClosedReason(notification.job)}
+                              title={applicationsClosedReason(notification.job) ? 'This job has already started' : undefined}
                               onClick={() => handleOfferAction(notification, 'accept')}
                             >
                               Accept Offer
@@ -193,6 +199,13 @@ export default function Notifications() {
                           >
                             Reject
                           </Button>
+                          {applicationsClosedReason(notification.job) && (
+                            <p className="text-xs text-amber-600 w-full">
+                              {applicationsClosedReason(notification.job) === 'ENDED'
+                                ? 'This job has ended — the offer can no longer be accepted.'
+                                : 'This job has already started — the offer can no longer be accepted.'}
+                            </p>
+                          )}
                         </div>
                       )}
                       {notification.type === 'APPLICATION_RECEIVED' && user?.role === 'EMPLOYER' && notification.application?.status === 'PENDING' && (
@@ -200,9 +213,12 @@ export default function Notifications() {
                           <Button
                             size="sm"
                             className="flex-1"
+                            disabled={!!applicationsClosedReason(notification.job)}
                             onClick={() => handleApplicationAction(notification, 'accept')}
                           >
-                            Accept
+                            {applicationsClosedReason(notification.job)
+                              ? (applicationsClosedReason(notification.job) === 'ENDED' ? 'Job ended' : 'Job started')
+                              : 'Accept'}
                           </Button>
                           <Button
                             variant="destructive"

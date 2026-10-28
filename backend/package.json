@@ -1,7 +1,7 @@
 {
-  "name": "labour-chowk-backend",
+  "name": "majdoorsaarthi-backend",
   "version": "1.0.0",
-  "description": "AI-Powered Digital Labour Chowk Backend",
+  "description": "AI-Powered Digital Majdoorsaarthi Backend",
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",

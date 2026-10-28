@@ -20,8 +20,9 @@ import RoleSelect from '@/components/RoleSelect';
 import WorkerBanner from '@/components/WorkerBanner';
 import WorkerRoleChips from '@/components/WorkerRoleChips';
 import WorkerDetailsDialog from '@/components/WorkerDetailsDialog';
-import { formatExpectedWage, formatReliability, formatJobSchedule } from '@/lib/format';
-import { applicationStatusLabelForEmployer } from '@/lib/job';
+import PaymentList from '@/components/PaymentList';
+import { formatExpectedWage, formatReliability, formatJobSchedule, formatMoney } from '@/lib/format';
+import { applicationStatusLabelForEmployer, applicationsClosedReason, JOB_CLOSURE_META } from '@/lib/job';
 import { MapPin } from 'lucide-react';
 
 const EmployerDashboard = () => {
@@ -30,6 +31,7 @@ const EmployerDashboard = () => {
   const [jobs, setJobs] = useState([]);
   const [activeTab, setActiveTab] = useState('create');
   const [loading, setLoading] = useState(true);
+  const [payments, setPayments] = useState([]);
 
   // Job form
   const [jobTitle, setJobTitle] = useState('');
@@ -78,10 +80,26 @@ const EmployerDashboard = () => {
   useEffect(() => {
     fetchData();
     fetchRoles();
-    const onNewNotification = () => fetchData();
+    const onNewNotification = () => {
+      fetchData();
+      fetchPayments();
+    };
     socket.on('notification:new', onNewNotification);
     return () => socket.off('notification:new', onNewNotification);
   }, []);
+
+  const fetchPayments = async () => {
+    try {
+      const res = await api.get('/payments');
+      setPayments(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load payments', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'payments') fetchPayments();
+  }, [activeTab]);
 
   const fetchRoles = async () => {
     try {
@@ -250,6 +268,13 @@ const EmployerDashboard = () => {
   };
 
   const handleHire = async (job, workerId, suggestedId) => {
+    const closed = applicationsClosedReason(job);
+    if (closed) {
+      showError(closed === 'ENDED'
+        ? 'This job has ended — no new offers can be sent'
+        : 'This job has already started — no new offers can be sent');
+      return;
+    }
     const roleId = effectiveRoleId(job, workerId, suggestedId);
     try {
       await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
@@ -263,6 +288,13 @@ const EmployerDashboard = () => {
   };
 
   const handleAcceptApplication = async (job, workerId, suggestedId) => {
+    const closed = applicationsClosedReason(job);
+    if (closed) {
+      showError(closed === 'ENDED'
+        ? 'This job has ended — no new offers can be sent'
+        : 'This job has already started — no new offers can be sent');
+      return;
+    }
     const roleId = effectiveRoleId(job, workerId, suggestedId);
     try {
       await api.post(`/jobs/${job.id}/hire/${workerId}`, { jobRoleId: roleId });
@@ -326,7 +358,7 @@ const EmployerDashboard = () => {
     })[0].id;
   };
 
-  const renderRoleSelect = (job, workerId, suggestedId) => {
+  const renderRoleSelect = (job, workerId, suggestedId, disabled = false) => {
     const roles = (job?.jobRoles || []).filter(r => (r.remainingCapacity ?? (r.count - (r.filledCount || 0))) > 0);
     if (roles.length === 0) {
       return (
@@ -347,6 +379,7 @@ const EmployerDashboard = () => {
     return (
       <select
         value={value}
+        disabled={disabled}
         onChange={(e) => setHireRole(workerId, e.target.value)}
         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
@@ -363,6 +396,14 @@ const EmployerDashboard = () => {
     return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
+  // Date gate mirror of backend/src/lib/jobDates.js: once a job's start moment
+  // passes, no new offers or application acceptances are possible.
+  const selectedJobClosed = selectedJob ? applicationsClosedReason(selectedJob) : null;
+  const browseJobClosed = browseJob ? applicationsClosedReason(browseJob) : null;
+  const appsJobClosed = appsJob ? applicationsClosedReason(appsJob) : null;
+  const gateText = (reason) =>
+    reason ? (reason === 'ENDED' ? 'Job ended' : 'Job started') : null;
+
   return (
     <>
       <main className="section-container py-8">
@@ -371,6 +412,7 @@ const EmployerDashboard = () => {
             { key: 'create', label: 'Create Job' },
             { key: 'jobs', label: 'My Jobs' },
             { key: 'history', label: 'History' },
+            { key: 'payments', label: 'Payments' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -682,10 +724,9 @@ const EmployerDashboard = () => {
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={!detail.reviewComplete}
                               onClick={() => navigate(`/jobs/${job.id}/track`)}
                             >
-                              {detail.reviewComplete ? 'View Details' : 'Rate to unlock details'}
+                              View Details
                             </Button>
                           </div>
                         </div>
@@ -700,12 +741,66 @@ const EmployerDashboard = () => {
           </div>
         )}
 
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (() => {
+          // Employer figures are GROSS (what they pay) — the 5% platform fee
+          // deduction is shown per row so both sides of the split are visible.
+          const paidTotal = payments
+            .filter(p => p.status === 'COMPLETED')
+            .reduce((sum, p) => sum + p.amount, 0);
+          const pendingTotal = payments
+            .filter(p => p.status === 'PENDING')
+            .reduce((sum, p) => sum + p.amount, 0);
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <h2 className="text-xl font-semibold">Payments Sent</h2>
+                <div className="flex gap-6">
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">Paid</p>
+                    <p className="font-semibold text-green-600">{formatMoney(paidTotal)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">Awaiting confirmation</p>
+                    <p className="font-semibold text-amber-600">{formatMoney(pendingTotal)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <Card>
+                <CardContent className="py-6">
+                  <PaymentList
+                    payments={payments}
+                    isEmployer
+                    onChanged={fetchPayments}
+                    showJob
+                  />
+                </CardContent>
+              </Card>
+
+              <p className="text-xs text-muted-foreground">
+                Send new payments from a job's tracking page — open{' '}
+                <span className="font-medium">My Jobs → View Details</span> and use the Pay
+                button next to a hired worker.
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Matches Modal */}
         <Dialog open={showMatches && !!selectedJob} onOpenChange={(o) => !o && setShowMatches(false)}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="pr-6">AI Matched Workers</DialogTitle>
-              <DialogDescription>For: {selectedJob?.title}</DialogDescription>
+              <DialogDescription className="flex flex-wrap items-center gap-2">
+                <span>For: {selectedJob?.title}</span>
+                {selectedJobClosed && (
+                  <Badge className={JOB_CLOSURE_META[selectedJobClosed].className}>
+                    {gateText(selectedJobClosed)} — no new offers
+                  </Badge>
+                )}
+              </DialogDescription>
             </DialogHeader>
 
             {matches.length === 0 ? (
@@ -742,7 +837,7 @@ const EmployerDashboard = () => {
                       </div>
                     </div>
                     <div className="mb-2">
-                      {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                      {renderRoleSelect(selectedJob, match.worker_id, match.suggestedRole?.id, !!selectedJobClosed)}
                     </div>
                     <ul className="text-xs text-muted-foreground mb-3 flex-1">
                       {match.match_reasons?.map((reason, i) => (
@@ -761,10 +856,10 @@ const EmployerDashboard = () => {
                       <Button
                         size="sm"
                         className="flex-1 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                        disabled={!effectiveRoleId(selectedJob, match.worker_id, match.suggestedRole?.id)}
+                        disabled={!!selectedJobClosed || !effectiveRoleId(selectedJob, match.worker_id, match.suggestedRole?.id)}
                         onClick={() => handleHire(selectedJob, match.worker_id, match.suggestedRole?.id)}
                       >
-                        Send Offer
+                        {selectedJobClosed ? gateText(selectedJobClosed) : 'Send Offer'}
                       </Button>
                     </div>
                   </div>
@@ -779,7 +874,14 @@ const EmployerDashboard = () => {
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="pr-6">Workers at {browseJob?.locationText}</DialogTitle>
-              <DialogDescription>For: {browseJob?.title}</DialogDescription>
+              <DialogDescription className="flex flex-wrap items-center gap-2">
+                <span>For: {browseJob?.title}</span>
+                {browseJobClosed && (
+                  <Badge className={JOB_CLOSURE_META[browseJobClosed].className}>
+                    {gateText(browseJobClosed)} — no new offers
+                  </Badge>
+                )}
+              </DialogDescription>
             </DialogHeader>
 
             {loadingWorkers ? (
@@ -817,7 +919,7 @@ const EmployerDashboard = () => {
                         {wage && <> | Wage: {wage}</>}
                       </p>
                       <div className="mb-3">
-                        {renderRoleSelect(browseJob, worker.id)}
+                        {renderRoleSelect(browseJob, worker.id, undefined, !!browseJobClosed)}
                       </div>
                       <div className="mt-auto flex gap-2">
                         <Button
@@ -831,10 +933,10 @@ const EmployerDashboard = () => {
                         <Button
                           size="sm"
                           className="flex-1 bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                          disabled={!effectiveRoleId(browseJob, worker.id)}
+                          disabled={!!browseJobClosed || !effectiveRoleId(browseJob, worker.id)}
                           onClick={() => handleHire(browseJob, worker.id)}
                         >
-                          Send Offer
+                          {browseJobClosed ? gateText(browseJobClosed) : 'Send Offer'}
                         </Button>
                       </div>
                     </div>
@@ -850,7 +952,14 @@ const EmployerDashboard = () => {
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="pr-6">Job Applications</DialogTitle>
-              <DialogDescription>For: {appsJob?.title}</DialogDescription>
+              <DialogDescription className="flex flex-wrap items-center gap-2">
+                <span>For: {appsJob?.title}</span>
+                {appsJobClosed && (
+                  <Badge className={JOB_CLOSURE_META[appsJobClosed].className}>
+                    {gateText(appsJobClosed)} — no new offers
+                  </Badge>
+                )}
+              </DialogDescription>
             </DialogHeader>
 
             {loadingApplications ? (
@@ -908,15 +1017,15 @@ const EmployerDashboard = () => {
                       {app.status === 'PENDING' && (
                         <>
                           <div className="flex-1 min-w-[180px]">
-                            {renderRoleSelect(appsJob, app.workerId, app.jobRoleId)}
+                            {renderRoleSelect(appsJob, app.workerId, app.jobRoleId, !!appsJobClosed)}
                           </div>
                           <Button
                             size="sm"
                             className="bg-gradient-to-r from-earth-500 to-earth-600 hover:from-earth-600 hover:to-earth-700 text-white"
-                            disabled={!effectiveRoleId(appsJob, app.workerId, app.jobRoleId)}
+                            disabled={!!appsJobClosed || !effectiveRoleId(appsJob, app.workerId, app.jobRoleId)}
                             onClick={() => handleAcceptApplication(appsJob, app.workerId, app.jobRoleId)}
                           >
-                            Send Offer
+                            {appsJobClosed ? gateText(appsJobClosed) : 'Send Offer'}
                           </Button>
                         </>
                       )}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,8 +9,9 @@ import MilestoneCard from '@/components/MilestoneCard';
 import DisputeForm from '@/components/DisputeForm';
 import JobReviewPanel from '@/components/JobReviewPanel';
 import api from '@/services/api';
+import socket from '@/services/socket';
 import { showSuccess, showError } from '@/lib/toast';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, BadgeCheck } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -20,6 +21,8 @@ import JobRoleChips from '@/components/JobRoleChips';
 import JobFacts from '@/components/JobFacts';
 import EmployerCard from '@/components/EmployerCard';
 import WorkerDetailsDialog from '@/components/WorkerDetailsDialog';
+import PayWorkerDialog from '@/components/PayWorkerDialog';
+import JobPaymentsCard from '@/components/JobPaymentsCard';
 import { workStatusLabel } from '@/lib/worker';
 
 export default function JobTracking() {
@@ -34,8 +37,34 @@ export default function JobTracking() {
   // Worker details dialog (employer's Hired Workers list)
   const [detailWorker, setDetailWorker] = useState(null);
   const [savingWork, setSavingWork] = useState({});
+  // Bumped after a payment is sent so JobPaymentsCard refetches without a full reload.
+  const [paymentsToken, setPaymentsToken] = useState(0);
+  // Payments bubbled up from JobPaymentsCard — used to hide per-row Pay for
+  // workers who already have a non-cancelled payment (one payment per worker).
+  const [jobPayments, setJobPayments] = useState([]);
+  // Bumped when the job is COMPLETED and this user still owes a review —
+  // JobReviewPanel pops its first pending review modal on each new token.
+  const [autoReviewOpen, setAutoReviewOpen] = useState(0);
+  const reviewPromptedRef = useRef(false);
 
   const isEmployer = user.role === 'EMPLOYER';
+
+  const handlePaid = () => {
+    fetchJob();
+    setPaymentsToken((t) => t + 1);
+  };
+
+  // Stable identity — JobPaymentsCard's fetch callback depends on it.
+  const handlePaymentsLoaded = useCallback((list) => setJobPayments(list || []), []);
+
+  // Live refetch: when the worker confirms the final payment the job flips to
+  // COMPLETED server-side; the employer (sitting on this page) hears about it
+  // via socket and the review modal pops without a manual refresh.
+  useEffect(() => {
+    const onNotify = () => fetchJob();
+    socket.on('notification:new', onNotify);
+    return () => socket.off('notification:new', onNotify);
+  }, [id]);
 
   const updateWorkDraft = (workerId, field, value) => {
     setWorkDrafts(prev => ({ ...prev, [workerId]: { ...(prev[workerId] || {}), [field]: value } }));
@@ -125,6 +154,22 @@ export default function JobTracking() {
     fetchJob();
   }, [id]);
 
+  // Auto-open the review modal once this job is COMPLETED and the current user
+  // still owes a review. Fires on completion (payment cascade or Mark
+  // Completed) AND on landing here for an unreviewed completed job (e.g. from
+  // a REVIEW_REQUIRED notification). Only the FIRST observation prompts —
+  // later refetches (socket, payment changes) must not re-open a dismissed
+  // modal; the panel's Review buttons remain for manual retries.
+  useEffect(() => {
+    if (!job) return;
+    if (job.status === 'COMPLETED' && !job.reviewComplete) {
+      if (!reviewPromptedRef.current) {
+        reviewPromptedRef.current = true;
+        setAutoReviewOpen((t) => t + 1);
+      }
+    }
+  }, [job]);
+
   const fetchJob = async () => {
     try {
       const res = await api.get(`/jobs/${id}`);
@@ -189,6 +234,12 @@ export default function JobTracking() {
     );
   }
 
+  // One payment per worker per job — mirror the server rule so paid workers
+  // lose their Pay button (a CANCELLED payment frees the slot again).
+  const paidWorkerIds = new Set(
+    jobPayments.filter(p => p.status !== 'CANCELLED').map(p => p.worker?.id).filter(Boolean)
+  );
+
   return (
     <div>
       <div className="max-w-3xl mx-auto section-container py-8">
@@ -228,11 +279,22 @@ export default function JobTracking() {
         </Card>
 
         <div className="space-y-6">
+          {job.hiredWorkers && job.hiredWorkers.length > 0 && (
+            <JobPaymentsCard
+              job={job}
+              isEmployer={isEmployer}
+              reloadToken={paymentsToken}
+              onPaid={handlePaid}
+              onPaymentsLoaded={handlePaymentsLoaded}
+            />
+          )}
+
           {job.status === 'COMPLETED' && !job.reviewComplete ? (
             <JobReviewPanel
               job={job}
               isEmployer={isEmployer}
               onReviewSubmitted={fetchJob}
+              autoOpen={autoReviewOpen}
             />
           ) : (
             <>
@@ -271,6 +333,14 @@ export default function JobTracking() {
                                     </p>
                                   </div>
                                   <div className="flex gap-2 shrink-0">
+                                    {paidWorkerIds.has(w.id) ? (
+                                      <Badge className="bg-green-100 text-green-700 gap-1">
+                                        <BadgeCheck className="h-3.5 w-3.5" />
+                                        Paid
+                                      </Badge>
+                                    ) : (
+                                      <PayWorkerDialog job={job} worker={w} onPaid={handlePaid} />
+                                    )}
                                     <Button
                                       variant="outline"
                                       size="sm"

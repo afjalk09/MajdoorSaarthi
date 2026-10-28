@@ -1,4 +1,4 @@
-# Agent Memory — AI-Powered Digital Labour Chowk
+# Agent Memory — AI-Powered Digital Majdoorsaarthi
 
 ## Project Identity
 - **Location**: E:\Labour
@@ -123,6 +123,76 @@ A single `Job` (project) can require multiple workers across different **roles**
 - `ApplicationStatus` enum includes: PENDING, ACCEPTED, REJECTED, HIRED, COMPLETED, WITHDRAWN, OFFERED, OFFER_WITHDRAWN.
 - `Notification` has optional `applicationId` + relation `application` (links a `JOB_OFFER` to the `JobApplication`; `onDelete: SetNull`). `createNotification(userId, type, title, message, jobId = null, applicationId = null)`.
 - Migrations: `20260905183019_add_work_status` (workStatus/workNote), `20260907064934_add_application_offered` (OFFERED status + Notification.applicationId), `20260907083950_add_offer_withdrawn` (OFFER_WITHDRAWN status).
+
+## Job Date Gate (applications close when the job starts)
+
+A job stops accepting **new** joiners the moment it starts and after it ends — even while `Job.status` is still `OPEN`. There is **no stored flag, no cron and no new `JobStatus`**: the cutoff is evaluated per request, so an employer who edits the dates (allowed while `OPEN`) automatically re-opens applications.
+
+### Rule
+- **Start moment** = `startDate` at `startTime` (default local midnight) → reason `'STARTED'`
+- **End moment** = last millisecond of `endDate` → reason `'ENDED'` (checked first, it is the more useful message)
+- No `startDate` → never date-closed. Status checks (`status !== 'OPEN'`) stay at the call sites — the date helper only answers the date question.
+
+### Backend
+- **`backend/src/lib/jobDates.js`** — `jobStartMoment`, `jobEndMoment`, `applicationsClosedReason(job, now)` → `'STARTED'|'ENDED'|null`, `isJobApplicationsClosed`, `applicationsClosedMessage(reason)` (the 400 text: *"This job has already started — applications are closed"*).
+- **Gated (all return `400`)**: `applyToJob`, `acceptOffer` (worker) and `hireWorker`, `acceptApplication` (employer). Reject / withdraw / cancel / work-status updates are deliberately still allowed.
+- **Annotated payloads** — `withDateGate(job)` in `job.controller.js` adds `{ closedReason, applicationsClosed }` to `getEmployerJobs` / `getJobById`; `getAvailableJobs` + `getJobDetail` add the same flags. **Started jobs stay in the worker list** (they sort last) — the UI disables Apply rather than hiding them.
+- `getNotifications` / `createNotification` now include `startDate`/`endDate`/`startTime` on the embedded `job` so the inline Accept buttons can be gated client-side (they used to carry only `id`+`title`).
+
+### Frontend
+- **`frontend/src/lib/job.js`** — `applicationsClosedReason(job)` / `isJobApplicationsClosed(job)` mirror the backend, computed **from the dates on every render** (not from the server flag) so a page left open past the start moment disables itself without a refetch; `JOB_CLOSURE_META` gives the badge classes, `jobClosureLabel(job)` the text.
+- **Worker**: `WorkerDashboard` Available-Jobs cards show a `Started`/`Ended` badge with a disabled `Closed` button (the Apply dialog also blocks submit); the OFFERED card disables *Accept Offer* but keeps *Reject*; `Notifications`/`NotificationBell` disable their inline Accept.
+- **Employer**: `EmployerDashboard` disables *Send Offer* + the role `<select>` in all three modals (Matches, Browse, Applications) and `handleHire`/`handleAcceptApplication` guard client-side; `BrowseWorkers` disables *Send Offer* and shows the badge on the selected-job card.
+
+### Verified by
+A temporary `backend/smoke-date-gate.js` (now deleted) — 12/12 live API checks: list flags, apply/hire/accept-offer/employer-accept all `400` on a started job, a future-date job still applies and sends offers normally.
+
+## Payments (Employer → Worker Ledger)
+
+A **manual ledger, not a gateway**: the employer records that they paid a hired worker (UPI/offline/bank/cash, with an optional txn reference); the **worker confirms receipt**, which completes it. No SDK, no keys, no money moves through the app — the confirm step is the worker's side of the flow. Direction is strictly **employer → worker**.
+
+### Money split (what every figure means)
+- Employer pays the gross `amount`; the platform carves `platformCommission = amount × PLATFORM_COMMISSION_RATE` (env, default `0.05`) out of it; the **worker receives `netAmount = amount − commission`**.
+- The API always returns `netAmount` alongside the stored fields (`withMoney()` in `payment.controller.js`) — the client never recomputes money.
+- UI rule: **worker-facing figures are NET** (Payments tab totals, confirm wording, `PAYMENT_SENT` notification), **employer-facing figures are GROSS** (Paid/Pending totals, "You pay" in the dialog). Per-row breakdowns show both.
+- **ONE payment per worker per job, ever** (user decision): `createPayment` rejects (`400`) when a `PENDING`/`COMPLETED`/`DISPUTED` payment already exists for that (job, worker); a `CANCELLED` payment frees the worker to be paid again. The UI mirrors this — paid workers drop out of the JobPaymentsCard picker (block replaced by "All hired workers have been paid" once none remain) and their per-row Pay button becomes a **Paid** badge (`JobTracking` derives `paidWorkerIds` from the payments bubbled up via `onPaymentsLoaded`). The old "multiple partial payments" allowance is GONE.
+
+### Auto-completion on payment confirmation (user decision)
+`PUT /payments/:id/confirm` now cascades (in `payment.controller.js`):
+1. Payment → `COMPLETED` (+ existing `PAYMENT_CONFIRMED` notification).
+2. That worker's application → `status: COMPLETED` + `workStatus: COMPLETED`, worker freed to `AVAILABLE` (mirrors the employer's Accept Completion).
+3. If the job is still `OPEN`/`IN_PROGRESS` **and every remaining `HIRED` application has a `COMPLETED` payment** (`allHiredWorkersPaid` in `lib/jobCompletion.js`) → `finalizeJobCompletion(jobId, 'PAYMENT')`: job → `COMPLETED`, leftover HIRED apps completed, everyone freed, `JOB_COMPLETED` + `REVIEW_REQUIRED` fired to **all hired workers (HIRED or already COMPLETED) and the employer**. Response includes `jobCompleted: true|false`.
+- Only `HIRED` apps count as "unpaid" — apps already completed via the work-status flow don't block auto-completion.
+- Manual "Mark as Completed" (`completeJob`) **stays** as the fallback for never-paid jobs; both paths share `finalizeJobCompletion` (`backend/src/lib/jobCompletion.js`) so notifications can't drift. A `CANCELLED` job is never auto-completed.
+
+### Review auto-open on completion (user decision)
+- `JobTracking` bumps an `autoReviewOpen` token the first time it observes `job.status === 'COMPLETED' && !job.reviewComplete` (per-user flag from `getJobById`) and also refetches on socket `notification:new` — so an employer sitting on the page sees the payment-driven completion live and the modal pops without a refresh.
+- `JobReviewPanel` accepts `autoOpen` (token) and opens the **first unrated reviewee's** `ReviewModal` once per token (`handledTokens` ref); unrated = `reviewees` minus `myReviews[].revieweeId`. `ReviewModal` gained optional controlled `open`/`onOpenChange` props (trigger-based default unchanged; the panel drives open via `onOpenChange={(v) => setAutoIdx(v ? i : null)}` so its trigger button still works).
+- `PaymentList.confirmReceipt` reads `jobCompleted` from the confirm response and navigates to `/jobs/:id/track` — covers confirming from either dashboard's Payments tab. `ReviewPromptDialog`/`PendingReviewsBanner` still nag on dashboards for anything left unreviewed.
+
+### Prisma (`Payment`)
+- Fields: `id, jobId, workerId, employerId, amount, platformCommission, paymentMethod, status, reference?, note?, createdAt, updatedAt, confirmedAt?` + indexes on jobId/workerId/employerId.
+- Enums: `PaymentMethod { UPI OFFLINE BANK_TRANSFER CASH }`, `PaymentStatus { PENDING COMPLETED DISPUTED CANCELLED }` (migration `20261010084702_add_payment_reference_fields`).
+- `PENDING` = employer sent, worker has NOT confirmed. `DISPUTED` is set manually / via the dispute flow (no code path sets it).
+
+### Endpoints (`payment.controller.js` + `payment.routes.js`)
+- `POST /api/payments` (**employer**) — body `{ job_id, worker_id, amount, payment_method, reference?, note? }` (camelCase aliases accepted). Validates: employer owns job, worker has a `HIRED`/`COMPLETED` app on it (`400 "Worker is not hired on this job"`), **no existing non-cancelled payment for that (job, worker)** (see one-payment rule above), amount > 0, method in enum. Creates `PENDING`, notifies the worker `PAYMENT_SENT`.
+- `PUT /api/payments/:id/confirm` (**worker**) — `PENDING → COMPLETED` + `confirmedAt`; completes the worker's app + frees them, and **auto-completes the job when all HIRED workers are paid** (see Auto-completion above); notifies employer `PAYMENT_CONFIRMED`. Returns `{ ...payment, netAmount, jobCompleted }`. Terminal states → `400`.
+- `PUT /api/payments/:id/cancel` (**employer**) — `PENDING → CANCELLED`; notifies worker `PAYMENT_CANCELLED`.
+- `GET /api/payments` (**both**) — the caller's history, role-scoped (ADMIN sees all); `?job_id=&status=` filters.
+- `GET /api/payments/job/:jobId` (**participants**) — employer sees all job payments, **a worker sees only their own**, outsiders → `403`. This gating exists because `GET /jobs/:id` is open to any authenticated user and must NOT embed money.
+- Notifications: `PAYMENT_SENT` / `PAYMENT_CONFIRMED` / `PAYMENT_CANCELLED` (icons + job-track navigation in `Notifications.jsx` / `NotificationBell.jsx`); `WORK_COMPLETION_REQUEST` also navigates to the job track page so the employer reaches the payment card when a worker requests completion.
+
+### Frontend
+- `components/PayWorkerDialog.jsx` — employer's send-payment form (amount prefilled from `job.wageAmount`, method select, reference/note, live gross/fee/net preview).
+- `components/PaymentList.jsx` — shared ledger rows + actions: worker *Confirm Receipt* / employer *Cancel* on `PENDING`.
+- `components/JobPaymentsCard.jsx` — per-job ledger on `JobTracking` (participant endpoint, `reloadToken` refetches after a send; shown whenever hired workers exist, including on completed jobs). **For the employer it is also the send-payment entry point** (worker `<select>` from **unpaid** hired workers + `PayWorkerDialog`; once all are paid the block reads "All hired workers have been paid") — the Job Actions card and its per-row Pay buttons only render while the job is OPEN/IN_PROGRESS, so without this the employer had **no way to pay after job completion** (bug fix). Employer History "View Details" no longer requires reviews first. Bubbles payments up via `onPaymentsLoaded` (JobTracking hides per-row Pay → **Paid** badge) and any change via `onPaid` (parent refetches the job — it may have just auto-completed).
+- `JobTracking.jsx` — **Pay** button per hired-worker row (employer; replaced by a Paid badge once that worker has a non-cancelled payment); payment card above the action/review section for both roles; auto-opens the review modal on completion; refetches on socket `notification:new` for live completion.
+- **Payments tab** (4th tab) on `WorkerDashboard` (net totals: Confirmed earnings / Awaiting you) and `EmployerDashboard` (gross totals: Paid / Awaiting confirmation + a pointer to JobTracking for sending).
+- Vocabulary: `PAYMENT_STATUS_META` / `PAYMENT_METHOD_LABELS` in `lib/job.js`; `formatMoney()` in `lib/format.js` (en-IN grouping).
+
+### Verified by
+A temporary `backend/smoke-payments.js` (now deleted) — **40/40 live API checks**: create/commission/net, role-scoped lists, participant 403s, non-owner 403, non-hired 400, invalid method/amount 400s, confirm + double-confirm, cancel + confirm-cancelled, status filters, 404, and all three notification types. Plus a second temporary `backend/smoke-payment-complete.js` (also deleted) — **21/21 checks** for the one-payment rule (duplicate blocked on PENDING and on COMPLETED, cancel re-enables) and the auto-complete cascade (single-worker job completes on confirm with `jobCompleted: true` + REVIEW_REQUIRED to both sides; two-worker job stays IN_PROGRESS after the first confirm and completes on the second; confirmed worker's app → COMPLETED + freed). Plus `npm run build` and the 7-test Playwright suite.
 
 ## Job & Worker Images (no DB photo fields)
 The `Job` model has **no image/photo field** — all job art is **derived at render time** from roles/titles. Workers only have `profilePhoto` (nullable), so worker images fall back to role art too.
@@ -336,8 +406,12 @@ Each match includes:
 - `GET /api/reviews/job/:jobId` — Get reviews for job
 
 ### Payments
-- `POST /api/payments/initiate` — Start payment
-- `PUT /api/payments/:id/confirm` — Confirm payment
+- `POST /api/payments` — Employer records a payment to a hired worker (→ `PENDING`; `{ job_id, worker_id, amount, payment_method, reference?, note? }`; 5% commission → `netAmount`)
+- `PUT /api/payments/:id/confirm` — Worker confirms receipt (`PENDING` → `COMPLETED`)
+- `PUT /api/payments/:id/cancel` — Employer voids a pending payment (`PENDING` → `CANCELLED`)
+- `GET /api/payments` — My payment history (role-scoped; `?job_id=&status=`)
+- `GET /api/payments/job/:jobId` — Job's payments (employer: all; worker: own only; outsiders 403)
+  — see **Payments (Employer → Worker Ledger)** above for the full flow
 
 ### Ratings
 - `POST /api/ratings` — Rate after completion

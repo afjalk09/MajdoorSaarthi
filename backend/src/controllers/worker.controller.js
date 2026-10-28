@@ -4,6 +4,10 @@ const { releaseWorkerFromJob, recomputeJobFill } = require('./job.controller');
 const roleService = require('../services/role.service');
 const { roleCapacityInclude, withRoleCapacity } = require('../lib/jobRoles');
 const { publicEmployerInclude } = require('../lib/publicEmployer');
+const {
+  applicationsClosedReason,
+  applicationsClosedMessage
+} = require('../lib/jobDates');
 
 exports.getProfile = async (req, res, next) => {
   try {
@@ -143,7 +147,13 @@ exports.getAvailableJobs = async (req, res, next) => {
 
     // Live per-role capacity, so "N needed" is never read from a stale
     // filledCount column (same rule the Apply dialog relies on).
-    jobs.forEach(job => { job.jobRoles = withRoleCapacity(job.jobRoles); });
+    // Started/expired jobs stay visible but carry a date-closure flag so the
+    // worker sees them with Apply disabled instead of silently vanishing.
+    jobs.forEach(job => {
+      job.jobRoles = withRoleCapacity(job.jobRoles);
+      job.closedReason = applicationsClosedReason(job);
+      job.applicationsClosed = job.closedReason !== null;
+    });
 
     // Role-aware sort: jobs the worker's profile roles match are shown first, then by recency.
     const workerRoles = (profile.roles || []).map(r => r.toLowerCase());
@@ -160,6 +170,9 @@ exports.getAvailableJobs = async (req, res, next) => {
     });
 
     jobs.sort((a, b) => {
+      if (a.applicationsClosed !== b.applicationsClosed) {
+        return a.applicationsClosed ? 1 : -1;
+      }
       const aMatched = roleMatched.has(a.id) ? 1 : 0;
       const bMatched = roleMatched.has(b.id) ? 1 : 0;
       if (aMatched !== bMatched) return bMatched - aMatched;
@@ -188,9 +201,16 @@ exports.getJobDetail = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
+    const closedReason = applicationsClosedReason(job);
+
     res.json({
       success: true,
-      data: { ...job, jobRoles: withRoleCapacity(job.jobRoles) }
+      data: {
+        ...job,
+        jobRoles: withRoleCapacity(job.jobRoles),
+        closedReason,
+        applicationsClosed: closedReason !== null
+      }
     });
   } catch (error) {
     next(error);
@@ -227,6 +247,13 @@ exports.applyToJob = async (req, res, next) => {
 
     if (job.status !== 'OPEN') {
       return res.status(400).json({ success: false, message: 'This job is no longer accepting applications' });
+    }
+
+    // Date gate: a job that has started (or ended) never accepts new applications,
+    // even while its status is still OPEN.
+    const closedReason = applicationsClosedReason(job);
+    if (closedReason) {
+      return res.status(400).json({ success: false, message: applicationsClosedMessage(closedReason) });
     }
 
     const existingApplication = await prisma.jobApplication.findUnique({
@@ -423,6 +450,13 @@ exports.acceptOffer = async (req, res, next) => {
 
     if (app.job.status === 'COMPLETED' || app.job.status === 'CANCELLED') {
       return res.status(400).json({ success: false, message: 'This job is no longer active' });
+    }
+
+    // Date gate: once the job's start moment has passed the offer cannot be
+    // accepted any more (declining it still works).
+    const closedReason = applicationsClosedReason(app.job);
+    if (closedReason) {
+      return res.status(400).json({ success: false, message: applicationsClosedMessage(closedReason) });
     }
 
     if (profile.availability !== 'AVAILABLE') {

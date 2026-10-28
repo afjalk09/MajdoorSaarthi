@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import socket from '@/services/socket';
 import { timeAgo } from '@/lib/format';
 import { showSuccess, showError } from '@/lib/toast';
+import { applicationsClosedReason } from '@/lib/job';
 
 export default function NotificationBell() {
   const { user } = useAuth();
@@ -90,7 +91,7 @@ export default function NotificationBell() {
 
   const handleNotificationClick = (notification) => {
     handleMarkAsRead(notification.id);
-    if (['JOB_COMPLETED', 'REVIEW_REQUIRED'].includes(notification.type) && notification.job?.id) {
+    if (['JOB_COMPLETED', 'REVIEW_REQUIRED', 'PAYMENT_SENT', 'PAYMENT_CONFIRMED', 'PAYMENT_CANCELLED', 'WORK_COMPLETION_REQUEST'].includes(notification.type) && notification.job?.id) {
       navigate(`/jobs/${notification.job.id}/track`);
     }
   };
@@ -178,6 +179,8 @@ export default function NotificationBell() {
                       <Button
                         size="sm"
                         className="h-7 text-xs flex-1"
+                        disabled={!!applicationsClosedReason(notification.job)}
+                        title={applicationsClosedReason(notification.job) ? 'This job has already started' : undefined}
                         onClick={() => handleOfferAction(notification, 'accept')}
                       >
                         Accept
@@ -198,9 +201,12 @@ export default function NotificationBell() {
                     <Button
                       size="sm"
                       className="h-7 text-xs flex-1"
+                      disabled={!!applicationsClosedReason(notification.job)}
                       onClick={() => handleApplicationAction(notification, 'accept')}
                     >
-                      Accept
+                      {applicationsClosedReason(notification.job)
+                        ? (applicationsClosedReason(notification.job) === 'ENDED' ? 'Job ended' : 'Job started')
+                        : 'Accept'}
                     </Button>
                     <Button
                       variant="destructive"

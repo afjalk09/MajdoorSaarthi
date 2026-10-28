@@ -22,7 +22,9 @@ import JobBanner from '@/components/JobBanner';
 import JobImage from '@/components/JobImage';
 import JobRoleChips from '@/components/JobRoleChips';
 import JobDetailsDialog from '@/components/JobDetailsDialog';
-import { formatJobSchedule } from '@/lib/format';
+import PaymentList from '@/components/PaymentList';
+import { formatJobSchedule, formatMoney } from '@/lib/format';
+import { applicationsClosedReason, JOB_CLOSURE_META } from '@/lib/job';
 import { MapPin } from 'lucide-react';
 
 const WorkerDashboard = () => {
@@ -40,6 +42,7 @@ const WorkerDashboard = () => {
   const [applying, setApplying] = useState(false);
   const [detailJobId, setDetailJobId] = useState(null);
   const [detailApp, setDetailApp] = useState(null);
+  const [payments, setPayments] = useState([]);
 
   // Open the shared job + employer details modal. Pass the worker's
   // application (from the Applications / History tabs) to show their standing.
@@ -136,10 +139,26 @@ const WorkerDashboard = () => {
   useEffect(() => {
     fetchData();
     fetchRoles();
-    const onNewNotification = () => fetchData();
+    const onNewNotification = () => {
+      fetchData();
+      fetchPayments();
+    };
     socket.on('notification:new', onNewNotification);
     return () => socket.off('notification:new', onNewNotification);
   }, []);
+
+  const fetchPayments = async () => {
+    try {
+      const res = await api.get('/payments');
+      setPayments(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to load payments', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'payments') fetchPayments();
+  }, [activeTab]);
 
   useEffect(() => {
     if (activeTab !== 'history') return;
@@ -283,6 +302,15 @@ const WorkerDashboard = () => {
     );
   }
 
+  // Re-evaluated on render, so an Apply dialog left open past the start
+  // moment disables itself without a refetch.
+  const applyClosedReason = applyJob ? applicationsClosedReason(applyJob) : null;
+
+  // An OFFERED application whose job has already started (or ended) can be
+  // declined but not accepted — mirrors the backend gate on /accept.
+  const offerClosedReason = (app) =>
+    app?.status === 'OFFERED' ? applicationsClosedReason(app.job) : null;
+
     return (
     <>
       <main className="section-container py-8">
@@ -292,6 +320,7 @@ const WorkerDashboard = () => {
             { key: 'jobs', label: 'Available Jobs' },
             { key: 'applications', label: 'My Applications' },
             { key: 'history', label: 'History' },
+            { key: 'payments', label: 'Payments' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -409,13 +438,24 @@ const WorkerDashboard = () => {
               </Card>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                {filteredJobs.map((job) => (
+                {filteredJobs.map((job) => {
+                  // Date gate: a job that has started (or ended) still shows in the
+                  // list, but with Apply disabled and a badge saying why.
+                  const closedReason = applicationsClosedReason(job);
+                  const closure = closedReason ? JOB_CLOSURE_META[closedReason] : null;
+
+                  return (
                   <Card key={job.id} className="overflow-hidden flex flex-col group hover:shadow-lg transition-shadow duration-200">
                     <JobBanner job={job} aspect="aspect-[4/3]" />
                     <CardContent className="flex-1 flex flex-col p-4">
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <CardTitle className="text-base leading-snug line-clamp-1">{job.title}</CardTitle>
-                        <Badge className="shrink-0">₹{job.wageAmount}<span className="text-[10px] opacity-80">/{job.wageType}</span></Badge>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {closure && (
+                            <Badge className={closure.className}>{closure.label}</Badge>
+                          )}
+                          <Badge>₹{job.wageAmount}<span className="text-[10px] opacity-80">/{job.wageType}</span></Badge>
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
                         <MapPin size={11} />
@@ -447,15 +487,18 @@ const WorkerDashboard = () => {
                           <Button
                             size="sm"
                             className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white"
+                            disabled={!!closedReason}
+                            title={closedReason === 'ENDED' ? 'This job has ended' : closedReason ? 'This job has already started' : undefined}
                             onClick={() => { setApplyJob(job); setApplyRoleId(''); }}
                           >
-                            Apply
+                            {closedReason ? 'Closed' : 'Apply'}
                           </Button>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -527,12 +570,26 @@ const WorkerDashboard = () => {
                           <>
                             {availability === 'AVAILABLE' ? (
                               <>
-                                <Button size="sm" onClick={() => handleAcceptOffer(app.id)}>
+                                <Button
+                                  size="sm"
+                                  disabled={!!offerClosedReason(app)}
+                                  title={offerClosedReason(app)
+                                    ? (offerClosedReason(app) === 'ENDED' ? 'This job has ended' : 'This job has already started')
+                                    : undefined}
+                                  onClick={() => handleAcceptOffer(app.id)}
+                                >
                                   Accept Offer
                                 </Button>
                                 <Button variant="destructive" size="sm" onClick={() => handleRejectOffer(app.id)}>
                                   Reject
                                 </Button>
+                                {offerClosedReason(app) && (
+                                  <span className="text-xs text-amber-600 self-center">
+                                    {offerClosedReason(app) === 'ENDED'
+                                      ? 'This job has ended — the offer can no longer be accepted.'
+                                      : 'This job has already started — the offer can no longer be accepted.'}
+                                  </span>
+                                )}
                               </>
                             ) : (
                               <>
@@ -647,6 +704,49 @@ const WorkerDashboard = () => {
             )}
           </div>
         )}
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (() => {
+          // Worker figures are NET of the 5% platform fee — that's what lands
+          // in their pocket, so the totals and the rows both show netAmount.
+          const confirmedTotal = payments
+            .filter(p => p.status === 'COMPLETED')
+            .reduce((sum, p) => sum + (p.netAmount ?? p.amount), 0);
+          const pendingTotal = payments
+            .filter(p => p.status === 'PENDING')
+            .reduce((sum, p) => sum + (p.netAmount ?? p.amount), 0);
+          const needsAction = payments.filter(p => p.status === 'PENDING').length;
+
+          return (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <h2 className="text-xl font-semibold">My Payments</h2>
+                <div className="flex gap-6">
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">Confirmed earnings</p>
+                    <p className="font-semibold text-green-600">{formatMoney(confirmedTotal)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-muted-foreground">
+                      Awaiting you{needsAction > 0 ? ` (${needsAction})` : ''}
+                    </p>
+                    <p className="font-semibold text-amber-600">{formatMoney(pendingTotal)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <Card>
+                <CardContent className="py-6">
+                  <PaymentList
+                    payments={payments}
+                    isEmployer={false}
+                    onChanged={fetchPayments}
+                    showJob
+                  />
+                </CardContent>
+              </Card>
+            </div>
+          );
+        })()}
       </main>
 
       {/* Apply with role dialog */}
@@ -662,6 +762,13 @@ const WorkerDashboard = () => {
                   ? 'Choose the role you are applying for. Slots are filled on a first-come basis.'
                   : 'Apply to this job.'}
               </p>
+              {applyClosedReason && (
+                <p className="text-sm font-medium text-destructive">
+                  {applyClosedReason === 'ENDED'
+                    ? 'This job has ended — applications are closed.'
+                    : 'This job has already started — applications are closed.'}
+                </p>
+              )}
               {applyJob.jobRoles && applyJob.jobRoles.length > 0 && (
                 <div>
                   <Label>Role</Label>
@@ -685,7 +792,7 @@ const WorkerDashboard = () => {
               <DialogFooter>
                 <Button
                   className="w-full"
-                  disabled={applying}
+                  disabled={applying || !!applyClosedReason}
                   onClick={handleApplyWithRole}
                 >
                   {applying ? 'Applying...' : 'Submit Application'}

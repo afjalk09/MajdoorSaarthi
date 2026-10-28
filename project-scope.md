@@ -1,15 +1,15 @@
-# Project Scope — AI-Powered Digital Labour Chowk
+# Project Scope — AI-Powered Digital Majdoorsaarthi
 
 # Problem
 Daily-wage workers struggle to find reliable jobs matching their skills and location.
 Contractors spend significant time searching for skilled and available workers.
-Traditional labour chowks depend heavily on manual processes and middlemen.
+Traditional labour markets depend heavily on manual processes and middlemen.
 There is no efficient system to evaluate workers based on skill, experience, availability, distance, wage expectations, and reliability.
 Worker availability and hiring decisions are often uncertain and unstructured.
 
 # Solution
 
-Build an AI-powered Digital Labour Chowk that connects workers directly with employers and automatically recommends the best-fit workers for each job.
+Build an AI-powered Digital Majdoorsaarthi that connects workers directly with employers and automatically recommends the best-fit workers for each job.
 
 The AI matching engine will:
 

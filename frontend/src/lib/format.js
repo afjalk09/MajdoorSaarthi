@@ -58,6 +58,16 @@ export function formatWage(job, { showZero = false } = {}) {
   return `₹${job.wageAmount}/${String(job.wageType || '').toLowerCase()}`;
 }
 
+/**
+ * A bare money amount as Indian-grouped rupees, e.g. "₹1,23,456.50".
+ * Use for payment amounts; `formatWage` is for wage + period combos.
+ */
+export function formatMoney(amount) {
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return '₹0';
+  return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+}
+
 /** First letters of a person's name, for avatar fallbacks. */
 export function initialsOf(name, fallback = '') {
   const source = (name || '').trim();

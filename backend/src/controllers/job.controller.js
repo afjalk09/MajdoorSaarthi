@@ -5,6 +5,18 @@ const roleService = require('../services/role.service');
 const { roleCapacityInclude, withRoleCapacity } = require('../lib/jobRoles');
 const { toPublicEmployer } = require('../lib/publicEmployer');
 const { publicWorkerInclude } = require('../lib/publicWorker');
+const {
+  applicationsClosedReason,
+  applicationsClosedMessage
+} = require('../lib/jobDates');
+const { finalizeJobCompletion } = require('../lib/jobCompletion');
+
+// Adds the date-gate flags to a job payload (`applicationsClosed` is what the
+// UI disables buttons on; `closedReason` explains why: STARTED or ENDED).
+const withDateGate = (job) => {
+  const closedReason = applicationsClosedReason(job);
+  return { ...job, closedReason, applicationsClosed: closedReason !== null };
+};
 
 // Validate role requirements against the taxonomy. Returns the cleaned
 // requirements array, or null if validation failed (caller sends the error).
@@ -222,7 +234,7 @@ exports.getEmployerJobs = async (req, res, next) => {
 
     // Derive real per-role capacity: only HIRED/COMPLETED fill a seat; pending offers don't.
     const jobsWithRoleCounts = jobs.map(job => ({
-      ...job,
+      ...withDateGate(job),
       applications: undefined,
       totalHired: (job.applications || []).length,
       jobRoles: withRoleCapacity(job.jobRoles)
@@ -291,7 +303,7 @@ exports.getJobById = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        ...job,
+        ...withDateGate(job),
         // This route is authenticate-only, so the employer row must not leak
         // PAN/Aadhaar/signatory data to other users viewing the job.
         employer: toPublicEmployer(job.employer),
@@ -621,6 +633,12 @@ exports.hireWorker = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
+    // Date gate: no new offers once the job has started (or ended).
+    const hireClosedReason = applicationsClosedReason(job);
+    if (hireClosedReason) {
+      return res.status(400).json({ success: false, message: applicationsClosedMessage(hireClosedReason) });
+    }
+
     const worker = await prisma.workerProfile.findUnique({ where: { id: workerId } });
     if (!worker) {
       return res.status(404).json({ success: false, message: 'Worker not found' });
@@ -765,6 +783,12 @@ exports.acceptApplication = async (req, res, next) => {
 
     if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
       return res.status(400).json({ success: false, message: 'This job is no longer active' });
+    }
+
+    // Date gate: a job that has already started cannot take on anyone new.
+    const acceptClosedReason = applicationsClosedReason(job);
+    if (acceptClosedReason) {
+      return res.status(400).json({ success: false, message: applicationsClosedMessage(acceptClosedReason) });
     }
 
     const employer = await prisma.employerProfile.findUnique({ where: { userId: req.user.id } });
@@ -1118,60 +1142,10 @@ exports.completeJob = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'You are not part of this job' });
     }
 
-    const updatedJob = await prisma.job.update({
-      where: { id: jobId },
-      data: { status: 'COMPLETED' }
-    });
-
-    // Mark all hired applications as completed
-    await prisma.jobApplication.updateMany({
-      where: { jobId, status: 'HIRED' },
-      data: { status: 'COMPLETED', workStatus: 'COMPLETED' }
-    });
-
-    // Update all hired workers' availability back to AVAILABLE
-    for (const app of job.applications) {
-      await prisma.workerProfile.update({
-        where: { id: app.workerId },
-        data: { availability: 'AVAILABLE' }
-      });
-    }
-
-    // Notify all hired workers (JOB_COMPLETED + REVIEW_REQUIRED)
-    for (const app of job.applications) {
-      await createNotification(
-        app.worker.userId,
-        'JOB_COMPLETED',
-        'Job Completed',
-        `The job "${job.title}" has been marked as completed.`,
-        jobId
-      );
-      await createNotification(
-        app.worker.userId,
-        'REVIEW_REQUIRED',
-        'Review Required',
-        `Please rate your employer for the job "${job.title}".`,
-        jobId
-      );
-    }
-
-    // Notify employer (always, not just when worker initiated)
-    await createNotification(
-      job.employer.userId,
-      'JOB_COMPLETED',
-      'Job Completed',
-      user.role === 'WORKER'
-        ? `The job "${job.title}" has been marked as completed by a worker.`
-        : `The job "${job.title}" has been marked as completed.`,
-      jobId
-    );
-    await createNotification(
-      job.employer.userId,
-      'REVIEW_REQUIRED',
-      'Review Required',
-      `Please rate your hired worker(s) for the job "${job.title}".`,
-      jobId
-    );
+    // Shared with the payment cascade (see lib/jobCompletion.js) — job status,
+    // app completion, worker freeing and JOB_COMPLETED/REVIEW_REQUIRED
+    // notifications all live in one place.
+    const updatedJob = await finalizeJobCompletion(jobId, user.role === 'WORKER' ? 'WORKER' : 'EMPLOYER');
 
     res.json({ success: true, data: updatedJob });
   } catch (error) {

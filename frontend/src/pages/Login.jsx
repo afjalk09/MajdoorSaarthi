@@ -42,9 +42,9 @@ const Login = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 mb-8">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md">
-              <span className="text-white font-display font-bold text-xl">L</span>
+              <span className="text-white font-display font-bold text-xl">M</span>
             </div>
-            <span className="font-display font-bold text-2xl text-warm-900">Labour Chowk</span>
+            <span className="font-display font-bold text-2xl text-warm-900">Majdoorsaarthi</span>
           </Link>
 
           <div className="mb-8">
@@ -139,7 +139,7 @@ const Login = () => {
               Find Skilled Workers in Minutes
             </h2>
             <p className="text-white/80 text-lg leading-relaxed mb-6">
-              Join hundreds of employers who trust Labour Chowk to find verified, skilled professionals for their projects.
+              Join hundreds of employers who trust Majdoorsaarthi to find verified, skilled professionals for their projects.
             </p>
             <div className="flex gap-8">
               <div>

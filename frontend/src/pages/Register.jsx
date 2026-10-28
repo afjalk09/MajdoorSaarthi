@@ -84,9 +84,9 @@ const Register = () => {
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 mb-8">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md">
-              <span className="text-white font-display font-bold text-xl">L</span>
+              <span className="text-white font-display font-bold text-xl">M</span>
             </div>
-            <span className="font-display font-bold text-2xl text-warm-900">Labour Chowk</span>
+            <span className="font-display font-bold text-2xl text-warm-900">Majdoorsaarthi</span>
           </Link>
 
           <div className="mb-8">

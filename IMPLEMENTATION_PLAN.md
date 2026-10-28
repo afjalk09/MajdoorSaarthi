@@ -1,4 +1,4 @@
-# AI-Powered Digital Labour Chowk — Implementation Plan
+# AI-Powered Digital Majdoorsaarthi — Implementation Plan
 
 ## Project Overview
 
@@ -19,7 +19,7 @@ An AI-powered platform connecting daily-wage workers directly with employers. Fe
 
 ### 1.1 Project Structure Setup
 ```
-labour-chowk/
+majdoorsaarthi/
 ├── backend/
 │   ├── src/
 │   │   ├── config/          # DB, env, constants

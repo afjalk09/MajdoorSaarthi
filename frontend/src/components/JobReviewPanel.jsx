@@ -1,10 +1,14 @@
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import ReviewModal from '@/components/ReviewModal';
 import { Lock, Star } from 'lucide-react';
 
-export default function JobReviewPanel({ job, isEmployer, onReviewSubmitted }) {
+export default function JobReviewPanel({ job, isEmployer, onReviewSubmitted, autoOpen = 0 }) {
+  // Which reviewee's modal is currently auto-opened (by index into reviewees).
+  const [autoIdx, setAutoIdx] = useState(null);
+  const handledTokens = useRef(new Set());
+
   if (job.status !== 'COMPLETED') return null;
 
   const hiredWorkers = job.hiredWorkers || [];
@@ -15,6 +19,19 @@ export default function JobReviewPanel({ job, isEmployer, onReviewSubmitted }) {
   const reviewees = isEmployer
     ? hiredWorkers.map(w => ({ id: w.userId, name: w.fullName }))
     : (job.employer ? [{ id: job.employer.userId, name: job.employer.displayName }] : []);
+
+  // Unrated = everyone this user still has to review (myReviews carries revieweeId).
+  const ratedIds = new Set((job.myReviews || []).map(r => r.revieweeId));
+  const unratedIdx = reviewees.findIndex(r => !ratedIds.has(r.id));
+
+  // Parent bumps `autoOpen` when the job completes (payment cascade) or when a
+  // completed-but-unreviewed job's page mounts — pop the first pending review.
+  useEffect(() => {
+    if (!autoOpen || handledTokens.current.has(autoOpen)) return;
+    handledTokens.current.add(autoOpen);
+    if (!complete && unratedIdx >= 0) setAutoIdx(unratedIdx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpen, complete, unratedIdx]);
 
   return (
     <Card className={!complete ? 'border-amber-400' : 'border-green-500'}>
@@ -52,7 +69,10 @@ export default function JobReviewPanel({ job, isEmployer, onReviewSubmitted }) {
                   jobId={job.id}
                   revieweeId={reviewee.id}
                   revieweeName={reviewee.name}
+                  open={autoIdx === i}
+                  onOpenChange={(v) => setAutoIdx(v ? i : null)}
                   onReviewSubmitted={() => {
+                    setAutoIdx(null);
                     if (onReviewSubmitted) onReviewSubmitted();
                   }}
                 />

@@ -43,3 +43,79 @@ export const applicationStatusLabelForEmployer = (status) =>
 
 /** True while the worker still has something to act on for this application. */
 export const isActionableApplication = (status) => status === 'OFFERED' || status === 'PENDING';
+
+/**
+ * Date gate mirror of `backend/src/lib/jobDates.js`.
+ *
+ * A job stops accepting NEW applications the moment it starts (start date +
+ * start time when set) and after its end date. Computed on the client from the
+ * dates — not from the server's `applicationsClosed` flag — so a tab left open
+ * past the start moment disables Apply without a refetch. The server enforces
+ * the same rule; this only decides what the UI lets you click.
+ *
+ * Returns 'ENDED' | 'STARTED' | null (null = still open, or no dates set).
+ */
+export const applicationsClosedReason = (job) => {
+  if (!job?.startDate) return null;
+
+  const atLocalMidnight = (value) => {
+    const date = new Date(value);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const now = new Date();
+
+  if (job.endDate) {
+    const end = atLocalMidnight(job.endDate);
+    end.setHours(23, 59, 59, 999);
+    if (end <= now) return 'ENDED';
+  }
+
+  const start = atLocalMidnight(job.startDate);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(job.startTime || '').trim());
+  if (match && Number(match[1]) <= 23 && Number(match[2]) <= 59) {
+    start.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  }
+  if (start <= now) return 'STARTED';
+
+  return null;
+};
+
+export const isJobApplicationsClosed = (job) => applicationsClosedReason(job) !== null;
+
+export const JOB_CLOSURE_META = {
+  STARTED: { label: 'Started', className: 'bg-amber-500 hover:bg-amber-500' },
+  ENDED: { label: 'Ended', className: 'bg-slate-500 hover:bg-slate-500' }
+};
+
+/** Badge text for a closed job, or null while it still accepts applications. */
+export const jobClosureLabel = (job) =>
+  JOB_CLOSURE_META[applicationsClosedReason(job)]?.label || null;
+
+// ---------------------------------------------------------------------------
+// Payments (mirrors the Prisma enums PaymentStatus / PaymentMethod)
+// ---------------------------------------------------------------------------
+
+/**
+ * PENDING = the employer recorded the payment and the worker has NOT yet
+ * confirmed receipt — that confirmation is the worker's side of the flow.
+ */
+export const PAYMENT_STATUS_META = {
+  PENDING: { label: 'Pending Confirmation', variant: 'outline' },
+  COMPLETED: { label: 'Confirmed', variant: 'default' },
+  DISPUTED: { label: 'Disputed', variant: 'destructive' },
+  CANCELLED: { label: 'Cancelled', variant: 'secondary' }
+};
+
+export const paymentStatusLabel = (status) =>
+  PAYMENT_STATUS_META[status]?.label || status || 'Unknown';
+
+export const PAYMENT_METHOD_LABELS = {
+  UPI: 'UPI',
+  OFFLINE: 'Offline',
+  BANK_TRANSFER: 'Bank Transfer',
+  CASH: 'Cash'
+};
+
+export const paymentMethodLabel = (method) => PAYMENT_METHOD_LABELS[method] || method || 'Unknown';
