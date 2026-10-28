@@ -334,7 +334,7 @@ const WorkerDashboard = () => {
               {activeTab === tab.key && (
                 <motion.div
                   layoutId="worker-tab-bg"
-                  className="absolute inset-0 bg-gradient-to-r from-saffron-500 to-saffron-600 rounded-xl shadow-md"
+                  className="absolute inset-0 bg-saffron-600 rounded-xl shadow-md"
                   transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                 />
               )}
@@ -486,7 +486,7 @@ const WorkerDashboard = () => {
                           </Button>
                           <Button
                             size="sm"
-                            className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white"
+                            className="bg-primary text-primary-foreground hover:bg-saffron-700"
                             disabled={!!closedReason}
                             title={closedReason === 'ENDED' ? 'This job has ended' : closedReason ? 'This job has already started' : undefined}
                             onClick={() => { setApplyJob(job); setApplyRoleId(''); }}

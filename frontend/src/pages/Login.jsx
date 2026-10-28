@@ -40,11 +40,11 @@ const Login = () => {
           className="w-full max-w-md"
         >
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 mb-8">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md">
-              <span className="text-white font-display font-bold text-xl">M</span>
+          <Link to="/" className="flex items-center gap-2.5 mb-8">
+            <div className="w-10 h-10 rounded-lg bg-saffron-600 flex items-center justify-center">
+              <span className="font-display text-xl font-extrabold text-white">M</span>
             </div>
-            <span className="font-display font-bold text-2xl text-warm-900">Majdoorsaarthi</span>
+            <span className="font-display text-2xl font-bold tracking-tight text-warm-900">Majdoorsaarthi</span>
           </Link>
 
           <div className="mb-8">
@@ -94,7 +94,7 @@ const Login = () => {
 
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white shadow-lg hover:shadow-xl transition-all h-12 text-base"
+              className="w-full h-12 text-base"
               disabled={loading}
             >
               {loading ? (
@@ -127,7 +127,7 @@ const Login = () => {
           alt="Worker at work"
           className="w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-warm-900/80 to-warm-900/40" />
+        <div className="absolute inset-0 bg-gradient-to-r from-warm-900/90 via-warm-900/70 to-warm-900/50" />
         <div className="absolute inset-0 flex items-center justify-center p-12">
           <motion.div
             initial={{ opacity: 0, x: 30 }}
@@ -147,7 +147,7 @@ const Login = () => {
                 <p className="text-white/60 text-sm">Workers</p>
               </div>
               <div>
-                <p className="text-2xl font-display font-bold text-saffron-400">1000+</p>
+                <p className="text-2xl font-display font-bold text-saffron-400">1,000+</p>
                 <p className="text-white/60 text-sm">Jobs Done</p>
               </div>
             </div>

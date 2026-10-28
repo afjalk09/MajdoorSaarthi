@@ -302,7 +302,7 @@ const BrowseWorkers = () => {
                 </select>
               </div>
               <div className="flex gap-2">
-                <Button type="submit" className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white shadow-md">
+                <Button type="submit">
                   Filter
                 </Button>
                 <Button type="button" variant="outline" onClick={handleReset} className="border-warm-200">

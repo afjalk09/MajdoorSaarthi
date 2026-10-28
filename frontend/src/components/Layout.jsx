@@ -58,13 +58,13 @@ const Layout = ({ children, showFooter = true }) => {
       {/* Header */}
       <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${headerBg}`}>
         <div className="section-container">
-          <div className="flex items-center justify-between h-16 lg:h-18">
+          <div className="flex items-center justify-between h-16">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2 group">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center shadow-md group-hover:shadow-lg transition-shadow">
-                <span className="text-white font-display font-bold text-lg">M</span>
+            <Link to="/" className="flex items-center gap-2.5 group">
+              <div className="w-9 h-9 rounded-lg bg-saffron-600 flex items-center justify-center">
+                <span className="font-display text-lg font-extrabold text-white">M</span>
               </div>
-              <span className={`font-display font-bold text-xl ${textColor} hidden sm:block`}>
+              <span className={`font-display text-lg font-bold tracking-tight ${textColor} hidden sm:block`}>
                 Majdoorsaarthi
               </span>
             </Link>
@@ -92,7 +92,7 @@ const Layout = ({ children, showFooter = true }) => {
                 <>
                   <NotificationBell />
                   <div className="hidden sm:flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-saffron-400 to-earth-500 flex items-center justify-center text-white text-xs font-bold">
+                    <div className="w-8 h-8 rounded-full bg-earth-600 flex items-center justify-center text-white text-xs font-bold">
                       {user.email?.[0]?.toUpperCase() || 'U'}
                     </div>
                     <span className={`text-sm font-medium max-w-[120px] truncate ${textColor}`}>
@@ -111,9 +111,7 @@ const Layout = ({ children, showFooter = true }) => {
                     </Button>
                   </Link>
                   <Link to="/register">
-                    <Button size="sm" className="bg-gradient-to-r from-saffron-500 to-saffron-600 hover:from-saffron-600 hover:to-saffron-700 text-white shadow-md hover:shadow-lg transition-all">
-                      Register
-                    </Button>
+                    <Button size="sm">Register</Button>
                   </Link>
                 </>
               )}
@@ -176,7 +174,7 @@ const Layout = ({ children, showFooter = true }) => {
                 {user && (
                   <div className="mt-6 pt-6 border-t border-warm-200">
                     <div className="flex items-center gap-3 mb-4 px-4">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-saffron-400 to-earth-500 flex items-center justify-center text-white text-sm font-bold">
+                      <div className="w-10 h-10 rounded-full bg-earth-600 flex items-center justify-center text-white text-sm font-bold">
                         {user.email?.[0]?.toUpperCase() || 'U'}
                       </div>
                       <div>
@@ -193,75 +191,79 @@ const Layout = ({ children, showFooter = true }) => {
       </AnimatePresence>
 
       {/* Main Content */}
-      <main className="flex-1 pt-16 lg:pt-18">
+      <main className="flex-1 pt-16">
         {children}
       </main>
 
       {/* Footer */}
-      {showFooter && (
-        <footer className="bg-warm-900 text-warm-200">
-          <div className="section-container py-12 lg:py-16">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-              {/* Brand */}
-              <div className="lg:col-span-1">
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-saffron-500 to-saffron-600 flex items-center justify-center">
-                    <span className="text-white font-display font-bold text-lg">M</span>
-                  </div>
-                  <span className="font-display font-bold text-xl text-white">Majdoorsaarthi</span>
-                </div>
-                <p className="text-warm-300 text-sm leading-relaxed mb-4">
-                  AI-powered platform connecting skilled workers with employers. Find the right talent for your projects.
-                </p>
-              </div>
-
-              {/* Platform */}
-              <div>
-                <h4 className="font-display font-semibold text-white mb-4">Platform</h4>
-                <ul className="space-y-2 text-sm">
-                  <li><Link to="/" className="text-warm-300 hover:text-saffron-400 transition-colors">Home</Link></li>
-                  <li><Link to="/#about" className="text-warm-300 hover:text-saffron-400 transition-colors">About</Link></li>
-                  <li><Link to="/#services" className="text-warm-300 hover:text-saffron-400 transition-colors">Services</Link></li>
-                  <li><Link to="/register" className="text-warm-300 hover:text-saffron-400 transition-colors">Register</Link></li>
-                </ul>
-              </div>
-
-              {/* For Users */}
-              <div>
-                <h4 className="font-display font-semibold text-white mb-4">For Users</h4>
-                <ul className="space-y-2 text-sm">
-                  <li><Link to="/register" className="text-warm-300 hover:text-saffron-400 transition-colors">Find Work</Link></li>
-                  <li><Link to="/register" className="text-warm-300 hover:text-saffron-400 transition-colors">Hire Workers</Link></li>
-                  <li><Link to="/login" className="text-warm-300 hover:text-saffron-400 transition-colors">Sign In</Link></li>
-                </ul>
-              </div>
-
-              {/* Support */}
-              <div>
-                <h4 className="font-display font-semibold text-white mb-4">Support</h4>
-                <ul className="space-y-2 text-sm">
-                  <li><span className="text-warm-300">support@majdoorsaarthi.com</span></li>
-                  <li><span className="text-warm-300">Help Center</span></li>
-                  <li><span className="text-warm-300">Community Guidelines</span></li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="mt-12 pt-8 border-t border-warm-700/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-              <p className="text-warm-400 text-sm">
-                &copy; {new Date().getFullYear()} Majdoorsaarthi. All rights reserved.
-              </p>
-              <div className="flex gap-6 text-sm">
-                <span className="text-warm-400 hover:text-saffron-400 cursor-pointer transition-colors">Terms</span>
-                <span className="text-warm-400 hover:text-saffron-400 cursor-pointer transition-colors">Privacy</span>
-                <span className="text-warm-400 hover:text-saffron-400 cursor-pointer transition-colors">Cookies</span>
-              </div>
-            </div>
-          </div>
-        </footer>
-      )}
+      {showFooter && <SiteFooter />}
     </div>
   );
 };
 
+const SiteFooter = () => (
+  <footer className="bg-warm-900 text-warm-200">
+    <div className="section-container py-12 lg:py-16">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+        {/* Brand */}
+        <div className="lg:col-span-1">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-9 h-9 rounded-lg bg-saffron-600 flex items-center justify-center">
+              <span className="font-display text-lg font-extrabold text-white">M</span>
+            </div>
+            <span className="font-display text-lg font-bold tracking-tight text-white">Majdoorsaarthi</span>
+          </div>
+          <p className="text-warm-300 text-sm leading-relaxed mb-4 max-w-[38ch]">
+            Find verified workers near you, or find your next day&rsquo;s work —
+            matched by skill, distance and reliability.
+          </p>
+        </div>
+
+        {/* Platform */}
+        <div>
+          <h4 className="font-display font-semibold text-white mb-4">Platform</h4>
+          <ul className="space-y-2 text-sm">
+            <li><Link to="/" className="text-warm-300 hover:text-saffron-300 transition-colors">Home</Link></li>
+            <li><Link to="/#about" className="text-warm-300 hover:text-saffron-300 transition-colors">Why Majdoorsaarthi</Link></li>
+            <li><Link to="/#services" className="text-warm-300 hover:text-saffron-300 transition-colors">Trades</Link></li>
+            <li><Link to="/register" className="text-warm-300 hover:text-saffron-300 transition-colors">Create account</Link></li>
+          </ul>
+        </div>
+
+        {/* For Users */}
+        <div>
+          <h4 className="font-display font-semibold text-white mb-4">For you</h4>
+          <ul className="space-y-2 text-sm">
+            <li><Link to="/register" className="text-warm-300 hover:text-saffron-300 transition-colors">Find work</Link></li>
+            <li><Link to="/register" className="text-warm-300 hover:text-saffron-300 transition-colors">Hire workers</Link></li>
+            <li><Link to="/login" className="text-warm-300 hover:text-saffron-300 transition-colors">Sign in</Link></li>
+          </ul>
+        </div>
+
+        {/* Support */}
+        <div>
+          <h4 className="font-display font-semibold text-white mb-4">Support</h4>
+          <ul className="space-y-2 text-sm">
+            <li><span className="text-warm-300">support@majdoorsaarthi.com</span></li>
+            <li><span className="text-warm-300">Help center</span></li>
+            <li><span className="text-warm-300">Community guidelines</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-12 pt-8 border-t border-warm-700/50 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <p className="text-warm-400 text-sm">
+          &copy; {new Date().getFullYear()} Majdoorsaarthi. All rights reserved.
+        </p>
+        <div className="flex gap-6 text-sm">
+          <span className="text-warm-400 hover:text-saffron-300 cursor-pointer transition-colors">Terms</span>
+          <span className="text-warm-400 hover:text-saffron-300 cursor-pointer transition-colors">Privacy</span>
+          <span className="text-warm-400 hover:text-saffron-300 cursor-pointer transition-colors">Cookies</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+);
+
+export { SiteFooter };
 export default Layout;

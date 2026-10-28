@@ -825,7 +825,7 @@ const EmployerDashboard = () => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <h4 className="font-semibold truncate">{match.full_name}</h4>
-                          <Badge className="bg-gradient-to-r from-saffron-500 to-saffron-600">{match.match_score}% match</Badge>
+                          <Badge className="bg-saffron-600">{match.match_score}% match</Badge>
                         </div>
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                           <MapPin size={11} className="text-saffron-500" />
