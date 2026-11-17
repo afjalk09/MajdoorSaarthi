@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const prisma = require('../lib/prisma');
+const storage = require('../lib/storage');
 const { PUBLIC_WORKER_SELECT, toPublicWorker } = require('../lib/publicWorker');
 const { WORK_HISTORY_INCLUDE, completedHistoryWhere, REVIEW_PARTY_SELECT, withWorkStats } = require('../lib/workerHistory');
 const { DOC_TYPES, ADDRESS_PROOF_TYPES, EMPLOYER_TYPES } = require('../lib/employerDocs');
-const { UPLOAD_DIR } = require('../middleware/upload.middleware');
+const { UPLOAD_DIR, ALLOWED_EXTENSIONS } = require('../middleware/upload.middleware');
 const {
   BUSINESS_ONLY_COLUMNS,
   trimToNull,
@@ -12,6 +13,42 @@ const {
   readCompanyRegNumber,
   requiresBusinessDetails
 } = require('../lib/employerValidation');
+
+/** Legacy/local-dev documents live under /uploads; everything else is an object-storage key. */
+const isDiskRef = (fileRef) => typeof fileRef === 'string' && fileRef.startsWith('/uploads/');
+
+const removeStoredFile = async (fileRef) => {
+  if (!fileRef) return;
+
+  if (isDiskRef(fileRef)) {
+    fs.unlink(path.join(UPLOAD_DIR, path.basename(fileRef)), () => {});
+    return;
+  }
+
+  if (storage.isConfigured()) {
+    await storage.deleteObject(fileRef).catch(() => {});
+  }
+};
+
+/**
+ * Persists an in-memory upload. Uses Neon object storage when configured and
+ * falls back to the local uploads directory for development.
+ */
+const storeUploadedBuffer = async (file, userId) => {
+  const originalExt = path.extname(file.originalname || '').toLowerCase();
+  const ext = ALLOWED_EXTENSIONS.includes(originalExt) ? originalExt : '.bin';
+
+  if (storage.isConfigured()) {
+    const key = storage.buildObjectKey({ userId, ext });
+    await storage.putObject({ key, body: file.buffer, contentType: file.mimetype });
+    return { fileUrl: key, fileName: file.originalname || path.basename(key) };
+  }
+
+  if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  const fileName = `${userId}-${Date.now()}-${Math.round(Math.random() * 1e9).toString(36)}${ext}`;
+  await fs.promises.writeFile(path.join(UPLOAD_DIR, fileName), file.buffer);
+  return { fileUrl: `/uploads/${fileName}`, fileName: file.originalname || fileName };
+};
 
 /** Documents still on file for a user: anything not rejected (pending review or approved) */
 const activeDocuments = (userId) =>
@@ -66,20 +103,37 @@ exports.getDocumentFile = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Not authorized to view this document' });
     }
 
-    const fileName = path.basename(document.fileUrl);
-    const absolutePath = path.join(UPLOAD_DIR, fileName);
+    const fallbackName = path.basename(document.fileUrl || 'document');
 
-    if (!fs.existsSync(absolutePath)) {
+    // originalname is user-supplied - strip quotes/control chars before it goes in a header
+    const downloadName = String(document.fileName || fallbackName).replace(/["\r\n]/g, '').trim() || fallbackName;
+
+    if (isDiskRef(document.fileUrl)) {
+      const absolutePath = path.join(UPLOAD_DIR, path.basename(document.fileUrl));
+
+      if (!fs.existsSync(absolutePath)) {
+        return res.status(404).json({ success: false, message: 'File is no longer available' });
+      }
+
+      res.setHeader('Content-Type', document.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
+      return res.sendFile(absolutePath);
+    }
+
+    if (!storage.isConfigured()) {
       return res.status(404).json({ success: false, message: 'File is no longer available' });
     }
 
-    // originalname is user-supplied - strip quotes/control chars before it goes in a header
-    const downloadName = String(document.fileName || fileName).replace(/["\r\n]/g, '').trim() || fileName;
+    const object = await storage.getObjectStream(document.fileUrl);
 
-    res.setHeader('Content-Type', document.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Type', document.mimeType || object.ContentType || 'application/octet-stream');
+    if (object.ContentLength) res.setHeader('Content-Length', String(object.ContentLength));
     res.setHeader('Content-Disposition', `inline; filename="${downloadName}"`);
-    res.sendFile(absolutePath);
+    object.Body.pipe(res);
   } catch (error) {
+    if (storage.isObjectMissing(error)) {
+      return res.status(404).json({ success: false, message: 'File is no longer available' });
+    }
     next(error);
   }
 };
@@ -90,6 +144,8 @@ exports.getDocumentFile = async (req, res, next) => {
  * rejected documents can be re-sent without piling up rows.
  */
 exports.uploadDocument = async (req, res, next) => {
+  let stored = null;
+
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
@@ -97,7 +153,6 @@ exports.uploadDocument = async (req, res, next) => {
 
     const docType = String(req.body.doc_type || '').toUpperCase();
     if (!DOC_TYPES.includes(docType)) {
-      fs.unlink(req.file.path, () => {});
       return res.status(400).json({
         success: false,
         message: `Invalid document type. Allowed: ${DOC_TYPES.join(', ')}`
@@ -110,13 +165,15 @@ exports.uploadDocument = async (req, res, next) => {
       where: { userId: req.user.id, docType, status: 'PENDING' }
     });
 
+    stored = await storeUploadedBuffer(req.file, req.user.id);
+
     const document = await prisma.document.create({
       data: {
         userId: req.user.id,
         docType,
         docNumber,
-        fileUrl: `/uploads/${req.file.filename}`,
-        fileName: req.file.originalname || req.file.filename,
+        fileUrl: stored.fileUrl,
+        fileName: stored.fileName,
         mimeType: req.file.mimetype
       }
     });
@@ -124,13 +181,12 @@ exports.uploadDocument = async (req, res, next) => {
     // Retire the superseded copies only after the new row exists
     for (const old of previous) {
       await prisma.document.delete({ where: { id: old.id } }).catch(() => {});
-      const oldPath = path.join(UPLOAD_DIR, path.basename(old.fileUrl));
-      fs.unlink(oldPath, () => {});
+      await removeStoredFile(old.fileUrl);
     }
 
     res.status(201).json({ success: true, data: document });
   } catch (error) {
-    if (req.file?.path) fs.unlink(req.file.path, () => {});
+    if (stored) await removeStoredFile(stored.fileUrl);
     next(error);
   }
 };
