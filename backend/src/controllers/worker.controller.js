@@ -39,7 +39,7 @@ exports.updateProfile = async (req, res, next) => {
       if (!Array.isArray(roles)) {
         return res.status(400).json({ success: false, message: 'roles must be an array' });
       }
-      const allRoles = await prisma.workerRole.findMany({ where: { active: true } });
+      const allRoles = await roleService.getAllRoles();
       const uniqueRoles = [...new Set(roles.map(r => (r || '').trim()).filter(Boolean))];
       const cleaned = uniqueRoles
         .slice(0, 10)

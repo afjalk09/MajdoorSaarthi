@@ -25,7 +25,7 @@ const prepareRoleRequirements = async (roleRequirements) => {
     return { error: 'At least one role requirement is needed' };
   }
 
-  const roles = await prisma.workerRole.findMany({ where: { active: true } });
+  const roles = await roleService.getAllRoles();
 
   const cleaned = [];
   for (const req of roleRequirements) {

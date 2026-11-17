@@ -1,7 +1,9 @@
 const prisma = require('../lib/prisma');
+const { ensureRoles } = require('../lib/roleTaxonomy');
 
 // All active taxonomy roles
 const getAllRoles = async () => {
+  await ensureRoles();
   return prisma.workerRole.findMany({
     where: { active: true },
     orderBy: { name: 'asc' }
@@ -11,6 +13,7 @@ const getAllRoles = async () => {
 // Case-insensitive check whether a role name exists in the taxonomy
 const isValidRoleName = async (name) => {
   if (!name || !name.trim()) return false;
+  await ensureRoles();
   const role = await prisma.workerRole.findFirst({
     where: { name: { equals: name.trim(), mode: 'insensitive' }, active: true },
     select: { name: true }
@@ -28,5 +31,6 @@ const canonicalRoleName = (roles, rawName) => {
 module.exports = {
   getAllRoles,
   isValidRoleName,
-  canonicalRoleName
+  canonicalRoleName,
+  ensureRoles
 };
