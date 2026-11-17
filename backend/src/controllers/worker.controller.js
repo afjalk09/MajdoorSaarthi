@@ -607,7 +607,7 @@ exports.rejectOffer = async (req, res, next) => {
 
 exports.updateMyWorkStatus = async (req, res, next) => {
   try {
-    const { id: jobId } = req.params;
+    const { id: applicationId } = req.params;
     const { workStatus, workNote } = req.body || {};
 
     const allowed = ['NOT_STARTED', 'IN_PROGRESS', 'COMPLETION_REQUESTED'];
@@ -623,23 +623,25 @@ exports.updateMyWorkStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Complete your profile first' });
     }
 
-    const job = await prisma.job.findUnique({
-      where: { id: jobId },
-      include: { employer: { include: { user: { select: { id: true } } } } }
+    const app = await prisma.jobApplication.findFirst({
+      where: {
+        workerId: profile.id,
+        OR: [{ id: applicationId }, { jobId: applicationId }]
+      },
+      include: {
+        job: { include: { employer: { include: { user: { select: { id: true } } } } } }
+      }
     });
-    if (!job) {
-      return res.status(404).json({ success: false, message: 'Job not found' });
+    if (!app) {
+      return res.status(404).json({ success: false, message: 'Application not found' });
+    }
+    if (app.status !== 'HIRED') {
+      return res.status(400).json({ success: false, message: 'You are not hired on this job' });
     }
 
+    const job = app.job;
     if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
       return res.status(400).json({ success: false, message: 'Job is no longer active' });
-    }
-
-    const app = await prisma.jobApplication.findUnique({
-      where: { jobId_workerId: { jobId, workerId: profile.id } }
-    });
-    if (!app || app.status !== 'HIRED') {
-      return res.status(400).json({ success: false, message: 'You are not hired on this job' });
     }
 
     const data = {};
@@ -657,7 +659,7 @@ exports.updateMyWorkStatus = async (req, res, next) => {
         'WORK_COMPLETION_REQUEST',
         'Work Completion Request',
         `${profile.fullName} has marked their work as complete for "${job.title}". Please verify and accept or reject it.`,
-        jobId,
+        job.id,
         app.id
       );
     }
