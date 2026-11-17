@@ -18,7 +18,7 @@ services:
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: FRONTEND_URL
-        sync: false
+        value: https://majdoorsaarthi-web.onrender.com
       - key: PLATFORM_COMMISSION_RATE
         value: "0.05"
       - key: AWS_REGION
@@ -46,6 +46,6 @@ services:
       - key: SKIP_INSTALL_DEPS
         value: "true"
       - key: VITE_ASSET_URL
-        sync: false
+        value: https://majdoorsaarthi-api.onrender.com
       - key: VITE_SOCKET_URL
-        sync: false
+        value: https://majdoorsaarthi-api.onrender.com
