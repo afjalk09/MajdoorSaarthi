@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const liveBaseURL = process.env.E2E_BASE_URL;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -7,14 +9,14 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: liveBaseURL || 'http://localhost:5173',
     trace: 'on-first-retry',
     locale: 'en-IN',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
-  webServer: [
+  webServer: liveBaseURL ? undefined : [
     {
       command: 'npm run dev',
       url: 'http://localhost:5000/api/health',

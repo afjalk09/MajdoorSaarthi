@@ -7,7 +7,7 @@ const phone = () => `+91${Date.now()}`;
 test.describe('Landing page CTAs', () => {
   test('landing "Register as Worker" opens the registration page', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Register as Worker' }).click();
+    await page.getByRole('button', { name: /register as a worker/i }).click();
     await expect(page).toHaveURL(/\/register$/);
     await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
   });
