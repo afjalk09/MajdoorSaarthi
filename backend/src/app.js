@@ -17,6 +17,16 @@ app.use(express.urlencoded({ extended: true }));
 // Aadhaar and are streamed through the auth-gated route in employer.routes.js
 // (GET /api/employer/documents/:id/file).
 
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      name: 'MajdoorSaarthi API',
+      health: '/api/health'
+    }
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

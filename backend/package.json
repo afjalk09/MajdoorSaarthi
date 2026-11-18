@@ -12,6 +12,7 @@
     "prisma:seed": "node prisma/seed.js",
     "prisma:seedtestaccounts": "node prisma/seed-test-accounts.js",
     "prisma:seedroles": "node prisma/seed-roles.js",
+    "prisma:syncusers": "node prisma/sync-local-users.js",
     "prisma:backfill": "node prisma/backfillRoleAssignments.js",
     "prisma:backfillroles": "node prisma/backfillWorkerRoles.js",
     "prisma:backfillrolenames": "node prisma/backfillRoleNames.js",
